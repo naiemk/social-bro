@@ -11,7 +11,7 @@ describe("social-ops plugins", () => {
     expect(names).toContain("QUEUE_DRAFT");
     expect(names).toContain("APPROVE_DRAFT");
     expect(names).toContain("REJECT_DRAFT");
-    expect(names).toContain("MARK_PUBLISHED");
+    expect(names).toContain("LIST_AUTO");
   });
 
   it("registers ops actions and heartbeat service", () => {

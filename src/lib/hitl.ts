@@ -8,10 +8,11 @@ export type HitlCommand =
   | { type: "status"; slug?: string }
   | { type: "pause"; slug: string }
   | { type: "resume"; slug: string }
+  | { type: "auto" }
   | { type: "help" };
 
 const COMMAND_RE =
-  /^\/(pending|approve|reject|edit|published|feedback|status|pause|resume|help)(?:\s+(.+))?$/i;
+  /^\/(pending|approve|reject|edit|published|feedback|status|pause|resume|auto|help)(?:\s+(.+))?$/i;
 
 export function parseHitlCommand(text: string): HitlCommand | null {
   const trimmed = text.trim();
@@ -43,6 +44,8 @@ export function parseHitlCommand(text: string): HitlCommand | null {
       return first ? { type: "pause", slug: first } : null;
     case "resume":
       return first ? { type: "resume", slug: first } : null;
+    case "auto":
+      return { type: "auto" };
     case "help":
       return { type: "help" };
     default:
@@ -78,8 +81,9 @@ export function extractChatId(message: {
 }
 
 export const HITL_HELP = `Human-in-the-loop commands:
-/pending [platform] — list drafts waiting for you
-/approve <id> — confirm a draft (you still post it in the native app)
+/pending [platform] — items that NEED your eyes (high sensitivity)
+/auto — low-sensitivity comments that already auto-approved
+/approve <id> — confirm a held draft
 /edit <id> <notes> — send back to the agent
 /reject <id> <reason> — kill it and store feedback
 /published <id> — you already posted it
@@ -89,4 +93,5 @@ export const HITL_HELP = `Human-in-the-loop commands:
 /resume <agent> — wake it
 /help — this list
 
-Nothing outbound ships without your confirm.`;
+Comments/replies auto-go when sensitivity ≤ 35.
+Original posts, follow-backs, legal/finance, and high scores stay on HOLD.`;

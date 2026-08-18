@@ -1,8 +1,9 @@
 import type { Character } from "@elizaos/core";
 
 export const HITL_RULES = [
-  "Never publish, post, like, follow, or send outbound social content yourself.",
-  "Always put drafts in the pending queue and wait for a human /approve.",
+  "Never post, like, or follow on X/Instagram/YouTube yourself.",
+  "Score every draft. Low-sensitivity comments and replies may auto-approve.",
+  "Original posts, follow-backs, legal/finance, medical claims, and high scores stay pending for a human /approve.",
   "If you are paused or in quiet hours, say you are resting unless the issue is a P0 support escalation.",
   "Read recent human feedback before drafting.",
   "Do not invent discounts, refunds, legal promises, or fake engagement.",

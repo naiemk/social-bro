@@ -22,6 +22,7 @@ import {
   moveItem,
 } from "../lib/queue.ts";
 import { agentSlug, canDraft, recordDraft } from "../lib/rest.ts";
+import { scoreContent } from "../lib/sensitivity.ts";
 
 function textOf(message: Memory): string {
   return String(message.content?.text || "").trim();
@@ -43,7 +44,7 @@ const queueDraftAction: Action = {
   name: "QUEUE_DRAFT",
   similes: ["DRAFT_POST", "CREATE_DRAFT", "QUEUE_POST"],
   description:
-    "Save outbound social/blog content into the pending human-approval queue. Never publish directly.",
+    "Score a draft and queue it. Low-sensitivity comments/replies auto-approve; posts and high scores wait for a human.",
   validate: async (runtime: IAgentRuntime, message: Memory) => {
     const text = textOf(message).toLowerCase();
     if (text.startsWith("/")) return false;
@@ -83,21 +84,35 @@ const queueDraftAction: Action = {
               ? "replies"
               : "twitter");
     const title = text.slice(0, 80) || "Untitled draft";
+    const scored = scoreContent({ body: text, platform });
     const item = draftItem({
       agent: slug,
       platform,
       title,
       body: text,
-      risk: "needs-human-confirm",
+      kind: scored.kind,
+      sensitivity: scored.total,
+      sensitivityLevel: scored.level,
+      flags: scored.flags,
+      autoApproved: scored.autoApprove,
+      notes: scored.reason,
+      risk: scored.autoApprove ? "auto" : scored.level,
     });
     recordDraft(slug);
-    logger.info({ id: item.id, platform }, "Queued draft for human approval");
-    return reply(
-      callback,
-      message,
-      `Queued ${item.id} as pending ${platform}. It will not publish until a human runs /approve ${item.id}.`,
-      "QUEUE_DRAFT",
+    logger.info(
+      {
+        id: item.id,
+        platform,
+        kind: scored.kind,
+        score: scored.total,
+        auto: scored.autoApprove,
+      },
+      "Queued scored draft",
     );
+    const next = scored.autoApprove
+      ? `Auto-approved ${item.id} (${scored.kind}, score ${scored.total} ${scored.level}). ${scored.flags.length ? `Flags: ${scored.flags.join(", ")}. ` : ""}It skipped the human queue. Use /auto to review today's autos.`
+      : `HOLD ${item.id} (${scored.kind}, score ${scored.total} ${scored.level}). ${scored.reason}. Review with /pending then /approve ${item.id}.`;
+    return reply(callback, message, next, "QUEUE_DRAFT");
   },
   examples: [
     [
@@ -108,7 +123,7 @@ const queueDraftAction: Action = {
       {
         name: "{{agent}}",
         content: {
-          text: "Queued tw-abc123 as pending twitter. It will not publish until you approve it.",
+          text: "HOLD tw-abc123 (post, score 40 medium). Review with /pending then /approve tw-abc123.",
           actions: ["QUEUE_DRAFT"],
         },
       },
@@ -141,8 +156,45 @@ const listQueueAction: Action = {
       {
         name: "{{agent}}",
         content: {
-          text: "- tw-abc [pending/twitter] Launch note",
+          text: "- tw-abc [pending/post] score=40 medium HOLD Launch note",
           actions: ["LIST_QUEUE"],
+        },
+      },
+    ],
+  ],
+};
+
+const listAutoAction: Action = {
+  name: "LIST_AUTO",
+  similes: ["AUTO_APPROVED", "SHOW_AUTO"],
+  description: "List drafts that auto-approved on sensitivity score.",
+  validate: async (_runtime, message) =>
+    /^\/auto\b|auto-approved|what auto approved/i.test(textOf(message)),
+  handler: async (
+    _runtime,
+    message,
+    _state,
+    _options,
+    callback,
+  ): Promise<ActionResult> => {
+    const items = listQueue("approved").filter((item) => item.autoApproved);
+    return reply(
+      callback,
+      message,
+      items.length
+        ? `Auto-approved (no human review):\n${formatQueueList(items)}`
+        : "No auto-approved items.",
+      "LIST_AUTO",
+    );
+  },
+  examples: [
+    [
+      { name: "{{user}}", content: { text: "/auto" } },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "Auto-approved: re-abc score=12 low",
+          actions: ["LIST_AUTO"],
         },
       },
     ],
@@ -348,9 +400,10 @@ const queueProvider: Provider = {
     const decision = canDraft(runtime);
     const feedback = readFeedback(slug);
     const text = [
-      `HITL: nothing publishes without a human /approve.`,
+      `HITL: original posts, follow-backs, and high-sensitivity items wait for /approve.`,
+      `Comments/replies auto-approve when score ≤ AUTO_APPROVE_REPLY_MAX (default 35).`,
       `Rest: ${decision.allowed ? "on shift" : decision.reason}`,
-      `Pending for ${slug}:`,
+      `Pending HOLD for ${slug}:`,
       formatQueueList(pending),
       `Recent feedback:\n${feedback}`,
     ].join("\n");
@@ -363,13 +416,15 @@ const queueProvider: Provider = {
 
 export const contentQueuePlugin: Plugin = {
   name: "content-queue",
-  description: "Human-in-the-loop content queue. Drafts never auto-publish.",
+  description:
+    "Human-in-the-loop content queue with sensitivity auto-approve for low-risk comments.",
   init: async () => {
     ensureQueueLayout();
   },
   actions: [
     queueDraftAction,
     listQueueAction,
+    listAutoAction,
     approveAction,
     rejectAction,
     editAction,

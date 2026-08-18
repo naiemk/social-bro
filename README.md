@@ -16,10 +16,13 @@ Nothing outbound ships until a human confirms it. Agents also rest (quiet hours,
 
 ## Human in the loop
 
+You only review **HOLD** items. Low-sensitivity comments skip you.
+
 Talk to **TG Guy** in Telegram or the local UI (`http://localhost:3000`):
 
 ```
-/pending [platform]
+/pending [platform]   # only items that need you (high sensitivity)
+/auto                 # comments that already auto-approved
 /approve <id>
 /edit <id> notes
 /reject <id> reason
@@ -31,9 +34,23 @@ Talk to **TG Guy** in Telegram or the local UI (`http://localhost:3000`):
 /help
 ```
 
-Approve means “I will post this in the native app”, not “the bot posted it”. After you post, `/published <id>`. Reject/edit notes land in `knowledge/feedback/`.
+**How approval works**
 
-Support FAQ answers may send immediately (logged). Billing, refunds, legal, and angry customers escalate and wait for you. Set `SUPPORT_AUTO_FAQ=false` to make every support reply pending.
+1. An agent drafts content. It gets a sensitivity score 0–100 (`low` / `medium` / `high` / `critical`).
+2. **Comments/replies** with score ≤ 35 (default) **auto-approve**. You are not pinged. See them later with `/auto`.
+3. **Original posts, follow-backs, blog/YouTube packs, legal/finance, refunds** stay **HOLD**. `/pending` lists them. `/approve <id>` confirms.
+4. Approve still means “this copy is OK”. Because we are not using X/Instagram/YouTube APIs, you post the approved text in the native app, then `/published <id>`.
+
+Tune with env:
+
+- `AUTO_APPROVE_REPLY_MAX=35` — comments/replies
+- `AUTO_APPROVE_SUPPORT_MAX=25` — bland FAQ only
+- `AUTO_APPROVE_POST_MAX=0` — original posts never auto (set 20 if you want bland tweets to skip you too)
+- `AUTO_APPROVE_FOLLOWBACK_MAX=0` — follow-back lists always HOLD
+
+Reject/edit notes land in `knowledge/feedback/`.
+
+Support FAQ answers may send immediately (logged). Billing, refunds, legal, and angry customers escalate and wait for you.
 
 ## Resting
 
@@ -60,7 +77,7 @@ elizaos start
 # or: elizaos dev
 ```
 
-Open `http://localhost:3000`. Chat with an agent and say “draft a tweet about the changelog”, then `/pending` and `/approve`.
+Open `http://localhost:3000`. Ask Twitter Guy to draft a **reply** (auto if low score) or a **tweet** (HOLD). Then `/pending` for anything that needs you.
 
 ### Environment
 

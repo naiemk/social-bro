@@ -31,6 +31,7 @@ describe("HITL commands", () => {
       type: "status",
       slug: "twitter-guy",
     });
+    expect(parseHitlCommand("/auto")).toEqual({ type: "auto" });
     expect(parseHitlCommand("hello")).toBeNull();
   });
 

@@ -39,6 +39,23 @@ describe("content queue", () => {
     expect(getItem(item.id)?.status).toBe("published");
   });
 
+  it("auto-approved drafts land in approved, not pending", () => {
+    const item = draftItem({
+      agent: "twitter-guy",
+      platform: "replies",
+      title: "Nice thread",
+      body: "Congrats on the ship.",
+      autoApproved: true,
+      sensitivity: 12,
+      sensitivityLevel: "low",
+      kind: "reply",
+    });
+    expect(item.status).toBe("approved");
+    expect(item.autoApproved).toBe(true);
+    expect(listQueue("pending")).toHaveLength(0);
+    expect(listQueue("approved")).toHaveLength(1);
+  });
+
   it("stores reject reasons", () => {
     const item = draftItem({
       agent: "blog-guy",

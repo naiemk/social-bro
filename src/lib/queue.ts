@@ -19,6 +19,11 @@ export interface QueueItem {
   risk?: string;
   notes?: string;
   media?: string[];
+  kind?: string;
+  sensitivity?: number;
+  sensitivityLevel?: string;
+  flags?: string[];
+  autoApproved?: boolean;
   filePath: string;
 }
 
@@ -61,6 +66,11 @@ updatedAt: ${item.updatedAt}
 risk: ${JSON.stringify(item.risk || "normal")}
 notes: ${JSON.stringify(item.notes || "")}
 media: ${JSON.stringify(media)}
+kind: ${item.kind || "post"}
+sensitivity: ${item.sensitivity ?? ""}
+sensitivityLevel: ${item.sensitivityLevel || ""}
+flags: ${JSON.stringify((item.flags || []).join(","))}
+autoApproved: ${item.autoApproved ? "true" : "false"}
 ---
 
 ${item.body.trim()}\n`;
@@ -85,6 +95,11 @@ function parseFile(filePath: string, status: QueueState): QueueItem | null {
     risk: meta.risk,
     notes: meta.notes,
     media: mediaRaw ? mediaRaw.split(",").filter(Boolean) : [],
+    kind: meta.kind,
+    sensitivity: meta.sensitivity ? Number(meta.sensitivity) : undefined,
+    sensitivityLevel: meta.sensitivityLevel,
+    flags: meta.flags ? meta.flags.split(",").filter(Boolean) : [],
+    autoApproved: meta.autoApproved === "true",
     filePath,
   };
 }
@@ -125,25 +140,37 @@ export function draftItem(input: {
   risk?: string;
   media?: string[];
   prefix?: string;
+  kind?: string;
+  sensitivity?: number;
+  sensitivityLevel?: string;
+  flags?: string[];
+  autoApproved?: boolean;
+  notes?: string;
 }): QueueItem {
   ensureQueueLayout();
   const now = new Date().toISOString();
   const id = createItemId(input.prefix || input.platform.slice(0, 2));
+  const status: QueueState = input.autoApproved ? "approved" : "pending";
   const item: Omit<QueueItem, "filePath"> = {
     id,
     agent: input.agent,
     platform: input.platform,
-    status: "pending",
+    status,
     title: input.title,
     body: input.body,
     createdAt: now,
     updatedAt: now,
-    risk: input.risk || "normal",
-    notes: "",
+    risk: input.risk || (input.autoApproved ? "auto" : "needs-human-confirm"),
+    notes: input.notes || "",
     media: input.media || [],
+    kind: input.kind,
+    sensitivity: input.sensitivity,
+    sensitivityLevel: input.sensitivityLevel,
+    flags: input.flags || [],
+    autoApproved: Boolean(input.autoApproved),
   };
   const filePath = path.join(
-    queueDir("pending", String(input.platform)),
+    queueDir(status, String(input.platform)),
     `${id}.md`,
   );
   fs.writeFileSync(filePath, serializeItem(item));
@@ -211,9 +238,17 @@ export function formatQueueList(items: QueueItem[], limit = 15): string {
   if (items.length === 0) return "Queue is empty.";
   return items
     .slice(0, limit)
-    .map(
-      (item) =>
-        `- ${item.id} [${item.status}/${item.platform}] ${item.title} (agent: ${item.agent})`,
-    )
+    .map((item) => {
+      const score =
+        item.sensitivity === undefined
+          ? ""
+          : ` score=${item.sensitivity} ${item.sensitivityLevel || ""}`;
+      const gate = item.autoApproved
+        ? " AUTO"
+        : item.status === "pending"
+          ? " HOLD"
+          : "";
+      return `- ${item.id} [${item.status}/${item.kind || item.platform}]${score}${gate} ${item.title}`;
+    })
     .join("\n");
 }
