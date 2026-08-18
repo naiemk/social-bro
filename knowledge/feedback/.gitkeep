@@ -1,0 +1,4 @@
+# Human feedback
+
+Reject, edit, and /feedback notes are appended here per agent as `knowledge/feedback/<agent>.md`.
+Agents should read the latest notes before drafting.
