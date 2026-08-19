@@ -46,10 +46,11 @@ Flow:
 1. Sign in as `main` / `changeme`.
 2. Create a project (free) — it seeds the five social roles.
 3. Add your social accounts (Accounts tab), then bind them to roles.
-4. Configure roles, caps, quiet hours, and voice (free).
-4. Admin → grant tokens, or Credits → buy an in-app pack (ledger only, not Stripe).
-5. Run a job. Each draft/video action spends tokens from `billing.actions` in `config.yaml`. The job **stops as soon as the wallet cannot cover the next action**.
-6. Activity shows produced items, token cost, and public links once you mark them published.
+4. Link your Telegram user id on Accounts. Open the bot, tap Start, then that chat is your desk to `/approve` or `/reject` drafts.
+5. Configure roles, caps, quiet hours, and voice (free).
+6. Admin → grant tokens, or Credits → buy an in-app pack (ledger only, not Stripe).
+7. Run a job. Each draft/video action spends tokens from `billing.actions` in `config.yaml`. The job **stops as soon as the wallet cannot cover the next action**.
+8. Activity shows produced items, token cost, and public links once you mark them published.
 
 Defining and configuring projects is free. Running jobs requires tokens.
 
@@ -65,7 +66,7 @@ Non-secret runtime behavior now lives in [`config.yaml`](./config.yaml). Keep se
 | `OLLAMA_API_ENDPOINT` | `http://localhost:11434/api` | Local Ollama fallback |
 | `OLLAMA_MODEL` | `llama3.2` | Model name to use with Ollama |
 | `TELEGRAM_BOT_TOKEN` | — | BotFather token for TG Guy |
-| `HITL_CHAT_IDS` | (empty = allow all) | Comma-separated Telegram chat ids allowed to issue commands |
+| `HITL_CHAT_IDS` | (empty = allow all until a desk is linked) | Extra Telegram chat ids allowed to issue commands. Linked dashboard desks are always included. |
 | `DRY_RUN` | `true` | Block all outbound actions |
 | `QUIET_HOURS` | `22:00-08:00` | No drafts outside these hours |
 | `REST_TZ` | `UTC` | Timezone for quiet hours / rest days |
@@ -88,12 +89,13 @@ Non-secret runtime behavior now lives in [`config.yaml`](./config.yaml). Keep se
 
 You only see **HOLD** items. Low-sensitivity comments skip the queue entirely.
 
-Talk to **TG Guy** in Telegram or at `http://localhost:3000`:
+Each operator can save their **Telegram user id** on the Accounts tab. The main bot sends a welcome message; that private chat is their desk. Held drafts are pushed there. Commands:
 
 ```
 /pending [platform]     list items waiting for your eyes
 /auto                   list items that already auto-approved
 /approve <id>           confirm draft copy is OK
+/accept <id>            same as /approve
 /render-video <id>      render an approved video plan via AI provider
 /edit <id> <notes>      send back to the agent with notes
 /reject <id> <reason>   kill the draft (stored as feedback)
@@ -104,6 +106,8 @@ Talk to **TG Guy** in Telegram or at `http://localhost:3000`:
 /resume <agent>         wake the agent
 /help                   this list
 ```
+
+Open the bot and tap **Start** before saving your id, or Telegram cannot deliver the welcome. You can also talk to **TG Guy** at `http://localhost:3000`.
 
 ### How sensitivity scores work
 

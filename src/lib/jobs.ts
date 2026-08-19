@@ -22,6 +22,7 @@ import {
 import { getProject, updateProject } from "./projects.ts";
 import { draftItem, type QueueItem } from "./queue.ts";
 import { listRoles, type SocialRole } from "./roles-store.ts";
+import { holdNotice, notifyUserDesk } from "./telegram-desk.ts";
 
 export type JobStatus =
   | "queued"
@@ -337,7 +338,7 @@ function produceForRole(
   return { ...spend, item };
 }
 
-export function runJob(projectId: string, jobId: string): Job {
+export async function runJob(projectId: string, jobId: string): Promise<Job> {
   const job = getJob(projectId, jobId);
   if (!job) throw new Error("Job not found");
   if (job.status === "stopped") return job;
@@ -380,6 +381,13 @@ export function runJob(projectId: string, jobId: string): Job {
     if (result.item) {
       job.produced.push(result.item.id);
       job.tokensSpent += result.cost;
+      if (result.item.status === "pending") {
+        try {
+          await notifyUserDesk(job.ownerUserId, holdNotice(result.item));
+        } catch {
+          /* Telegram delivery must not fail the job */
+        }
+      }
     }
   }
 
@@ -389,12 +397,12 @@ export function runJob(projectId: string, jobId: string): Job {
   return job;
 }
 
-export function createAndRunJob(input: {
+export async function createAndRunJob(input: {
   projectId: string;
   ownerUserId: string;
   roleSlugs?: string[];
   brief?: string;
-}): Job {
+}): Promise<Job> {
   const job = createJob(input);
   return runJob(job.projectId, job.id);
 }

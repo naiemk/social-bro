@@ -15,6 +15,8 @@ export interface PlatformUser {
   username: string;
   isAdmin: boolean;
   createdAt: string;
+  telegramId?: string;
+  telegramLinkedAt?: string;
 }
 
 export interface Session {
@@ -65,6 +67,63 @@ export function listUsers(): PlatformUser[] {
 
 export function getUser(id: string): PlatformUser | null {
   return listUsers().find((user) => user.id === id) || null;
+}
+
+export function findUserByTelegramId(
+  telegramId?: string | number | null,
+): PlatformUser | null {
+  if (telegramId === undefined || telegramId === null || String(telegramId).trim() === "") {
+    return null;
+  }
+  const needle = String(telegramId).trim();
+  return (
+    listUsers().find((user) => user.telegramId && user.telegramId === needle) ||
+    null
+  );
+}
+
+export function linkedTelegramIds(): string[] {
+  return listUsers()
+    .map((user) => user.telegramId)
+    .filter((id): id is string => Boolean(id));
+}
+
+export function updateUser(
+  id: string,
+  patch: Partial<Pick<PlatformUser, "telegramId" | "telegramLinkedAt">>,
+): PlatformUser {
+  const users = listUsers();
+  const idx = users.findIndex((user) => user.id === id);
+  if (idx === -1) throw new Error("User not found");
+  const next = { ...users[idx], ...patch };
+  if (patch.telegramId === "") {
+    delete next.telegramId;
+    delete next.telegramLinkedAt;
+  }
+  users[idx] = next;
+  writeJsonFile(usersPath(), users);
+  return next;
+}
+
+export function createUser(input: {
+  id?: string;
+  username: string;
+  isAdmin?: boolean;
+}): PlatformUser {
+  ensureMainUser();
+  const users = readJsonFile<PlatformUser[]>(usersPath(), []);
+  if (users.some((row) => row.username === input.username)) {
+    throw new Error("Username already exists");
+  }
+  const user: PlatformUser = {
+    id: input.id || `user-${crypto.randomBytes(4).toString("hex")}`,
+    username: input.username,
+    isAdmin: Boolean(input.isAdmin),
+    createdAt: new Date().toISOString(),
+  };
+  users.push(user);
+  writeJsonFile(usersPath(), users);
+  return user;
 }
 
 export function login(

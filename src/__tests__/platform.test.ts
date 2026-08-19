@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { login, sessionFromRequest, dashboardUsername } from "../lib/auth.ts";
+import { login, sessionFromRequest, dashboardUsername, createUser, getUser } from "../lib/auth.ts";
 import {
   grantTokens,
   getBalance,
@@ -24,7 +24,12 @@ import {
   upsertRole,
 } from "../lib/roles-store.ts";
 import { listActivity } from "../lib/activity.ts";
-import { listQueue } from "../lib/queue.ts";
+import { draftItem, listQueue } from "../lib/queue.ts";
+import contentQueuePlugin from "../plugins/content-queue.ts";
+import {
+  connectTelegramDesk,
+  setTelegramTransportForTests,
+} from "../lib/telegram-desk.ts";
 
 function withTmpData() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "social-bro-app-"));
@@ -115,6 +120,7 @@ describe("operator platform", () => {
 
   afterEach(() => {
     env.restore();
+    setTelegramTransportForTests(null);
   });
 
   it("rejects bad passwords and issues a session for the hardcoded user", async () => {
@@ -214,14 +220,14 @@ describe("operator platform", () => {
     expect(denied.statusCode).toBe(400);
   });
 
-  it("skips jobs when the user has not defined a matching account", () => {
+  it("skips jobs when the user has not defined a matching account", async () => {
     const session = login("main", "changeme")!;
     const project = createProject({
       name: "No accounts",
       ownerUserId: session.user.id,
     });
     grantTokens(session.user.id, 20);
-    const job = createAndRunJob({
+    const job = await createAndRunJob({
       projectId: project.id,
       ownerUserId: session.user.id,
       roleSlugs: ["twitter-guy"],
@@ -274,7 +280,7 @@ describe("operator platform", () => {
     expect(fail.reason).toContain("Insufficient credits");
   });
 
-  it("runs a job that spends tokens and stops when credits run out", () => {
+  it("runs a job that spends tokens and stops when credits run out", async () => {
     const session = login("main", "changeme")!;
     seedAccounts(session.user.id);
     const project = createProject({
@@ -283,7 +289,7 @@ describe("operator platform", () => {
       brief: "Announce the quiet-hours feature",
     });
     grantTokens(session.user.id, 2);
-    const job = createAndRunJob({
+    const job = await createAndRunJob({
       projectId: project.id,
       ownerUserId: session.user.id,
     });
@@ -333,5 +339,168 @@ describe("operator platform", () => {
     const cfg = loadSocialOpsConfig();
     expect(cfg.billing.actions["draft.post"]).toBe(1);
     expect(cfg.billing.packages[0].id).toBe("starter");
+  });
+
+  it("sends a welcome from the main bot and stores the Telegram desk", async () => {
+    const sent: { chatId: string; text: string }[] = [];
+    setTelegramTransportForTests(async (chatId, text) => {
+      sent.push({ chatId, text });
+    });
+    const session = login("main", "changeme")!;
+    const linked = await call("POST", "/app/auth/telegram", {
+      token: session.token,
+      body: { telegramId: "555001" },
+    });
+    expect(linked.statusCode).toBe(200);
+    const body = linked.body as { user: { telegramId: string }; sent: boolean };
+    expect(body.sent).toBe(true);
+    expect(body.user.telegramId).toBe("555001");
+    expect(getUser(session.user.id)?.telegramId).toBe("555001");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].chatId).toBe("555001");
+    expect(sent[0].text).toContain("your Social Bro desk");
+    expect(sent[0].text).toContain("/approve");
+
+    const me = await call("GET", "/app/auth/me", { token: session.token });
+    expect((me.body as { user: { telegramId: string } }).user.telegramId).toBe(
+      "555001",
+    );
+  });
+
+  it("rejects a Telegram id already linked to another user", async () => {
+    const sent: string[] = [];
+    setTelegramTransportForTests(async (chatId) => {
+      sent.push(chatId);
+    });
+    const other = createUser({ username: "other", id: "user-other" });
+    await connectTelegramDesk(other.id, "555002");
+    const session = login("main", "changeme")!;
+    const denied = await call("POST", "/app/auth/telegram", {
+      token: session.token,
+      body: { telegramId: "555002" },
+    });
+    expect(denied.statusCode).toBe(400);
+    expect(String((denied.body as { error: string }).error)).toContain(
+      "already linked",
+    );
+    expect(getUser(session.user.id)?.telegramId).toBeUndefined();
+    expect(sent).toEqual(["555002"]);
+  });
+
+  it("does not save the id when Telegram cannot send", async () => {
+    setTelegramTransportForTests(null);
+    const previous = process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    const session = login("main", "changeme")!;
+    await expect(connectTelegramDesk(session.user.id, "555003")).rejects.toThrow(
+      "TELEGRAM_BOT_TOKEN is not set",
+    );
+    expect(getUser(session.user.id)?.telegramId).toBeUndefined();
+    if (previous === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = previous;
+  });
+
+  it("lets a linked desk accept its own drafts and hides other users' items", async () => {
+    const session = login("main", "changeme")!;
+    setTelegramTransportForTests(async () => {});
+    await connectTelegramDesk(session.user.id, "555001");
+
+    const mine = createProject({
+      name: "Mine",
+      ownerUserId: session.user.id,
+    });
+    const mineItem = draftItem({
+      agent: "twitter-guy",
+      platform: "twitter",
+      title: "My draft",
+      body: "hello",
+      projectId: mine.id,
+    });
+
+    const other = createUser({ username: "other", id: "user-other" });
+    await connectTelegramDesk(other.id, "555002");
+    const theirs = createProject({
+      name: "Theirs",
+      ownerUserId: other.id,
+    });
+    const theirItem = draftItem({
+      agent: "twitter-guy",
+      platform: "twitter",
+      title: "Not yours",
+      body: "secret",
+      projectId: theirs.id,
+    });
+
+    const approve = contentQueuePlugin.actions?.find(
+      (action) => action.name === "APPROVE_DRAFT",
+    );
+    expect(approve).toBeDefined();
+
+    async function run(text: string, chatId: string) {
+      let reply = "";
+      await approve!.handler(
+        {} as never,
+        {
+          content: { text, metadata: { chatId } },
+        } as never,
+        {} as never,
+        {},
+        async (content) => {
+          reply = String(content.text || "");
+        },
+      );
+      return reply;
+    }
+
+    const hidden = await run(`/approve ${theirItem.id}`, "555001");
+    expect(hidden).toContain("not found");
+    expect(listQueue("pending", undefined, theirs.id)[0]?.id).toBe(theirItem.id);
+
+    const accepted = await run(`/accept ${mineItem.id}`, "555001");
+    expect(accepted).toContain(`Approved ${mineItem.id}`);
+    expect(listQueue("approved", undefined, mine.id)[0]?.id).toBe(mineItem.id);
+
+    const list = contentQueuePlugin.actions?.find(
+      (action) => action.name === "LIST_QUEUE",
+    );
+    let pendingText = "";
+    await list!.handler(
+      {} as never,
+      {
+        content: { text: "/pending", metadata: { chatId: "555002" } },
+      } as never,
+      {} as never,
+      {},
+      async (content) => {
+        pendingText = String(content.text || "");
+      },
+    );
+    expect(pendingText).toContain(theirItem.id);
+    expect(pendingText).not.toContain(mineItem.id);
+  });
+
+  it("notifies the linked Telegram desk when a job queues a HOLD draft", async () => {
+    const sent: string[] = [];
+    setTelegramTransportForTests(async (_chatId, text) => {
+      sent.push(text);
+    });
+    const session = login("main", "changeme")!;
+    await connectTelegramDesk(session.user.id, "555001");
+    seedAccounts(session.user.id);
+    const project = createProject({
+      name: "Ping",
+      ownerUserId: session.user.id,
+      brief: "Announce the launch",
+    });
+    grantTokens(session.user.id, 5);
+    const job = await createAndRunJob({
+      projectId: project.id,
+      ownerUserId: session.user.id,
+      roleSlugs: ["twitter-guy"],
+    });
+    expect(job.produced.length).toBe(1);
+    expect(sent.some((text) => text.includes("HOLD") && text.includes(job.produced[0]))).toBe(
+      true,
+    );
   });
 });

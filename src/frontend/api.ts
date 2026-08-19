@@ -43,6 +43,8 @@ export type User = {
   id: string;
   username: string;
   isAdmin: boolean;
+  telegramId?: string;
+  telegramLinkedAt?: string;
 };
 
 export type Project = {

@@ -178,7 +178,13 @@ export default function App() {
             onError={setError}
           />
         )}
-        {route.name === "accounts" && user && <Accounts onError={setError} />}
+        {route.name === "accounts" && user && (
+          <Accounts
+            user={user}
+            setUser={setUser}
+            onError={setError}
+          />
+        )}
         {route.name === "admin" && user?.isAdmin && (
           <Admin setBalance={setBalance} onError={setError} />
         )}
@@ -245,8 +251,18 @@ function Login({
   );
 }
 
-function Accounts({ onError }: { onError: (msg: string) => void }) {
+function Accounts({
+  user,
+  setUser,
+  onError,
+}: {
+  user: User;
+  setUser: (user: User) => void;
+  onError: (msg: string) => void;
+}) {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [telegramId, setTelegramId] = useState(user.telegramId || "");
+  const [telegramStatus, setTelegramStatus] = useState("");
   const [form, setForm] = useState({
     platform: "twitter",
     handle: "",
@@ -267,6 +283,62 @@ function Accounts({ onError }: { onError: (msg: string) => void }) {
         These are your handles. Bind them to project roles so jobs draft for the
         right account. No live posting from this phase.
       </p>
+      <form
+        className="rounded-lg border border-border p-4 mb-6 grid gap-3 md:grid-cols-3"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setTelegramStatus("");
+          try {
+            const data = await api<{
+              user: User;
+              sent: boolean;
+            }>("/app/auth/telegram", {
+              method: "POST",
+              body: JSON.stringify({ telegramId }),
+            });
+            setUser(data.user);
+            setTelegramId(data.user.telegramId || telegramId);
+            setTelegramStatus(
+              "Welcome sent. Open the bot, tap Start if you have not already, then use /pending, /approve, and /reject in that chat.",
+            );
+          } catch (err) {
+            onError(
+              err instanceof Error
+                ? err.message
+                : "Could not link Telegram. Open the bot and tap Start, then try again.",
+            );
+          }
+        }}
+      >
+        <div className="md:col-span-3">
+          <h2 className="font-medium">Telegram desk</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Save your numeric Telegram user id. We message you from the main
+            bot; that chat is your dashboard to accept or reject posts.
+            {user.telegramId ? (
+              <>
+                {" "}
+                Linked: <span className="text-foreground">{user.telegramId}</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <input
+          className={inputClass}
+          placeholder="Telegram user id (e.g. 123456789)"
+          value={telegramId}
+          onChange={(e) => setTelegramId(e.target.value)}
+          required
+        />
+        <button className="rounded-md bg-primary text-primary-foreground">
+          {user.telegramId ? "Update and message me" : "Link and message me"}
+        </button>
+        {telegramStatus ? (
+          <p className="md:col-span-3 text-sm text-muted-foreground">
+            {telegramStatus}
+          </p>
+        ) : null}
+      </form>
       <form
         className="rounded-lg border border-border p-4 mb-6 grid gap-3 md:grid-cols-5"
         onSubmit={async (event) => {

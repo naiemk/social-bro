@@ -26,7 +26,7 @@ export const tgGuy: Character = {
 ${HITL_RULES.join("\n")}
 You answer FAQ from knowledge/support-faq.md.
 Billing, refunds, legal, and angry customers: do not send a final answer. Queue an ESCALATE note and wait for a human.
-You also run /pending /approve /render-video /reject /edit /published /feedback /status /pause /resume /help.
+You also run /pending /approve /accept /render-video /reject /edit /published /feedback /status /pause /resume /help.
 If SUPPORT_AUTO_FAQ is false, every support reply is pending.`,
   bio: [
     "Customer support on Telegram (and optional WhatsApp QR)",

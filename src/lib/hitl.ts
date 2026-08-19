@@ -1,3 +1,5 @@
+import { linkedTelegramIds } from "./auth.ts";
+
 export type HitlCommand =
   | { type: "pending"; platform?: string }
   | { type: "approve"; id: string }
@@ -12,7 +14,7 @@ export type HitlCommand =
   | { type: "help" };
 
 const COMMAND_RE =
-  /^\/(pending|approve|reject|edit|published|feedback|status|pause|resume|auto|help)(?:\s+(.+))?$/i;
+  /^\/(pending|approve|accept|reject|edit|published|feedback|status|pause|resume|auto|help)(?:\s+(.+))?$/i;
 
 export function parseHitlCommand(text: string): HitlCommand | null {
   const trimmed = text.trim();
@@ -27,6 +29,7 @@ export function parseHitlCommand(text: string): HitlCommand | null {
     case "pending":
       return { type: "pending", platform: first || undefined };
     case "approve":
+    case "accept":
       return first ? { type: "approve", id: first } : null;
     case "reject":
       return first
@@ -53,16 +56,25 @@ export function parseHitlCommand(text: string): HitlCommand | null {
   }
 }
 
+/**
+ * Linked dashboard Telegram desks are always allowed.
+ * HITL_CHAT_IDS is an extra operator allowlist.
+ * Empty env and no linked desks = allow all (dev / existing tests).
+ */
 export function isAllowlisted(chatId?: string | number | null): boolean {
   const raw = process.env.HITL_CHAT_IDS?.trim();
-  if (!raw) return true;
+  const linked = linkedTelegramIds();
+  if (!raw && linked.length === 0) return true;
   if (chatId === undefined || chatId === null || String(chatId) === "")
     return false;
-  const allowed = raw
+  const id = String(chatId);
+  if (linked.includes(id)) return true;
+  if (!raw) return false;
+  return raw
     .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-  return allowed.includes(String(chatId));
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .includes(id);
 }
 
 export function extractChatId(message: {
@@ -75,15 +87,32 @@ export function extractChatId(message: {
       message.content.metadata) ||
       {}),
   } as Record<string, unknown>;
+  const chat =
+    typeof meta.chat === "object" && meta.chat
+      ? (meta.chat as Record<string, unknown>)
+      : null;
+  const from =
+    typeof meta.from === "object" && meta.from
+      ? (meta.from as Record<string, unknown>)
+      : null;
   const candidate =
-    meta.chatId || meta.chat_id || meta.channelId || meta.userId || meta.fromId;
-  return candidate !== undefined ? String(candidate) : undefined;
+    meta.chatId ||
+    meta.chat_id ||
+    meta.channelId ||
+    meta.userId ||
+    meta.fromId ||
+    chat?.id ||
+    from?.id;
+  return candidate !== undefined && candidate !== null
+    ? String(candidate)
+    : undefined;
 }
 
 export const HITL_HELP = `Human-in-the-loop commands:
 /pending [platform] — items that NEED your eyes (high sensitivity)
 /auto — low-sensitivity comments that already auto-approved
 /approve <id> — confirm a held draft
+/accept <id> — same as /approve
 /render-video <approved-plan-id> — generate approved IG/YT script with AI video provider
 /edit <id> <notes> — send back to the agent
 /reject <id> <reason> — kill it and store feedback
@@ -94,5 +123,6 @@ export const HITL_HELP = `Human-in-the-loop commands:
 /resume <agent> — wake it
 /help — this list
 
+Link your Telegram id in the dashboard so this chat is your personal desk.
 Comments/replies auto-go when sensitivity ≤ 35.
 Original posts, follow-backs, legal/finance, and high scores stay on HOLD.`;

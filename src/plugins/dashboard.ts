@@ -14,6 +14,7 @@ import {
   sessionFromRequest,
   type PlatformUser,
 } from "../lib/auth.ts";
+import { connectTelegramDesk } from "../lib/telegram-desk.ts";
 import {
   getBalance,
   grantTokens,
@@ -180,6 +181,23 @@ export async function handleAppRoute(
     return;
   }
 
+  if (method === "POST" && pathname === "/app/auth/telegram") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    try {
+      const result = await connectTelegramDesk(
+        user.id,
+        String(body.telegramId || ""),
+      );
+      sendJson(res, 200, { user: result.user, sent: result.sent });
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
   if (method === "GET" && pathname === "/app/projects") {
     const user = requireUser(req, res);
     if (!user) return;
@@ -323,7 +341,7 @@ export async function handleAppRoute(
     const owned = ownedProject(req, res, jobsList.id);
     if (!owned) return;
     try {
-      const job = createAndRunJob({
+      const job = await createAndRunJob({
         projectId: owned.project.id,
         ownerUserId: owned.user.id,
         roleSlugs: Array.isArray(body.roleSlugs)
@@ -628,6 +646,7 @@ export const dashboardPlugin: Plugin = {
     appRoute("app-login", "/app/auth/login", "POST"),
     appRoute("app-logout", "/app/auth/logout", "POST"),
     appRoute("app-me", "/app/auth/me", "GET"),
+    appRoute("app-telegram", "/app/auth/telegram", "POST"),
     appRoute("app-accounts", "/app/accounts", "GET"),
     appRoute("app-accounts-create", "/app/accounts", "POST"),
     appRoute("app-account-update", "/app/accounts/:id", "PUT"),

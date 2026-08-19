@@ -17,12 +17,18 @@ import {
   draftItem,
   ensureQueueLayout,
   formatQueueList,
-  getItem,
   listQueue,
   moveItem,
 } from "../lib/queue.ts";
 import { agentSlug, canDraft, recordDraft } from "../lib/rest.ts";
 import { scoreContent } from "../lib/sensitivity.ts";
+import {
+  assertDeskItem,
+  formatDeskQueue,
+  itemsForDesk,
+  resolveDesk,
+  type DeskAccess,
+} from "../lib/telegram-desk.ts";
 
 function textOf(message: Memory): string {
   return String(message.content?.text || "").trim();
@@ -38,6 +44,23 @@ async function reply(
     await callback({ text, actions: [action], source: message.content.source });
   }
   return { success: true, text };
+}
+
+function deskFrom(message: Memory): ReturnType<typeof resolveDesk> {
+  return resolveDesk(message);
+}
+
+async function withDesk(
+  message: Memory,
+  callback: HandlerCallback | undefined,
+  action: string,
+  run: (access: DeskAccess) => Promise<ActionResult>,
+): Promise<ActionResult> {
+  const access = deskFrom(message);
+  if (!access.ok) {
+    return reply(callback, message, access.error, action);
+  }
+  return run(access);
 }
 
 const queueDraftAction: Action = {
@@ -144,11 +167,17 @@ const listQueueAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const parts = textOf(message).split(/\s+/);
-    const platform =
-      parts[1] && !parts[1].startsWith("/") ? parts[1] : undefined;
-    const items = listQueue("pending", platform);
-    return reply(callback, message, formatQueueList(items), "LIST_QUEUE");
+    return withDesk(message, callback, "LIST_QUEUE", async (access) => {
+      const parts = textOf(message).split(/\s+/);
+      const platform =
+        parts[1] && !parts[1].startsWith("/") ? parts[1] : undefined;
+      return reply(
+        callback,
+        message,
+        formatDeskQueue(access, "pending", platform),
+        "LIST_QUEUE",
+      );
+    });
   },
   examples: [
     [
@@ -177,15 +206,19 @@ const listAutoAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const items = listQueue("approved").filter((item) => item.autoApproved);
-    return reply(
-      callback,
-      message,
-      items.length
-        ? `Auto-approved (no human review):\n${formatQueueList(items)}`
-        : "No auto-approved items.",
-      "LIST_AUTO",
-    );
+    return withDesk(message, callback, "LIST_AUTO", async (access) => {
+      const items = itemsForDesk(access, "approved").filter(
+        (item) => item.autoApproved,
+      );
+      return reply(
+        callback,
+        message,
+        items.length
+          ? `Auto-approved (no human review):\n${formatQueueList(items)}`
+          : "No auto-approved items.",
+        "LIST_AUTO",
+      );
+    });
   },
   examples: [
     [
@@ -207,7 +240,7 @@ const approveAction: Action = {
   description:
     "Human confirms a pending draft. Does not post to social networks.",
   validate: async (_runtime, message) =>
-    /^\/approve\s+\S+/i.test(textOf(message)),
+    /^\/(approve|accept)\s+\S+/i.test(textOf(message)),
   handler: async (
     _runtime,
     message,
@@ -215,15 +248,21 @@ const approveAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const id = textOf(message).split(/\s+/)[1];
-    const item = moveItem(id, "approved");
-    appendFeedback(item.agent, `approved ${item.id}`);
-    return reply(
-      callback,
-      message,
-      `Approved ${item.id}. Post it yourself in the native ${item.platform} app, then /published ${item.id}.`,
-      "APPROVE_DRAFT",
-    );
+    return withDesk(message, callback, "APPROVE_DRAFT", async (access) => {
+      const id = textOf(message).split(/\s+/)[1];
+      const found = assertDeskItem(access, id);
+      if (typeof found === "string") {
+        return reply(callback, message, found, "APPROVE_DRAFT");
+      }
+      const item = moveItem(found.id, "approved");
+      appendFeedback(item.agent, `approved ${item.id}`);
+      return reply(
+        callback,
+        message,
+        `Approved ${item.id}. Post it yourself in the native ${item.platform} app, then /published ${item.id}.`,
+        "APPROVE_DRAFT",
+      );
+    });
   },
   examples: [
     [
@@ -249,16 +288,22 @@ const rejectAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const [, id, ...reasonParts] = textOf(message).split(/\s+/);
-    const reason = reasonParts.join(" ") || "rejected";
-    const item = moveItem(id, "rejected", reason);
-    appendFeedback(item.agent, `rejected ${item.id}: ${reason}`);
-    return reply(
-      callback,
-      message,
-      `Rejected ${item.id}. Feedback saved: ${reason}`,
-      "REJECT_DRAFT",
-    );
+    return withDesk(message, callback, "REJECT_DRAFT", async (access) => {
+      const [, id, ...reasonParts] = textOf(message).split(/\s+/);
+      const reason = reasonParts.join(" ") || "rejected";
+      const found = assertDeskItem(access, id);
+      if (typeof found === "string") {
+        return reply(callback, message, found, "REJECT_DRAFT");
+      }
+      const item = moveItem(found.id, "rejected", reason);
+      appendFeedback(item.agent, `rejected ${item.id}: ${reason}`);
+      return reply(
+        callback,
+        message,
+        `Rejected ${item.id}. Feedback saved: ${reason}`,
+        "REJECT_DRAFT",
+      );
+    });
   },
   examples: [
     [
@@ -283,20 +328,22 @@ const editAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const [, id, ...noteParts] = textOf(message).split(/\s+/);
-    const notes = noteParts.join(" ");
-    const existing = getItem(id);
-    if (!existing) {
-      return { success: false, text: `Queue item not found: ${id}` };
-    }
-    const item = moveItem(id, "pending", notes);
-    appendFeedback(item.agent, `edit ${item.id}: ${notes}`);
-    return reply(
-      callback,
-      message,
-      `Sent ${item.id} back for revision. Notes: ${notes}`,
-      "EDIT_DRAFT",
-    );
+    return withDesk(message, callback, "EDIT_DRAFT", async (access) => {
+      const [, id, ...noteParts] = textOf(message).split(/\s+/);
+      const notes = noteParts.join(" ");
+      const found = assertDeskItem(access, id);
+      if (typeof found === "string") {
+        return reply(callback, message, found, "EDIT_DRAFT");
+      }
+      const item = moveItem(found.id, "pending", notes);
+      appendFeedback(item.agent, `edit ${item.id}: ${notes}`);
+      return reply(
+        callback,
+        message,
+        `Sent ${item.id} back for revision. Notes: ${notes}`,
+        "EDIT_DRAFT",
+      );
+    });
   },
   examples: [
     [
@@ -328,14 +375,20 @@ const publishedAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const id = textOf(message).split(/\s+/)[1];
-    const item = moveItem(id, "published");
-    return reply(
-      callback,
-      message,
-      `Marked ${item.id} published.`,
-      "MARK_PUBLISHED",
-    );
+    return withDesk(message, callback, "MARK_PUBLISHED", async (access) => {
+      const id = textOf(message).split(/\s+/)[1];
+      const found = assertDeskItem(access, id);
+      if (typeof found === "string") {
+        return reply(callback, message, found, "MARK_PUBLISHED");
+      }
+      const item = moveItem(found.id, "published");
+      return reply(
+        callback,
+        message,
+        `Marked ${item.id} published.`,
+        "MARK_PUBLISHED",
+      );
+    });
   },
   examples: [
     [
@@ -364,17 +417,21 @@ const feedbackAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
-    const [, id, ...noteParts] = textOf(message).split(/\s+/);
-    const item = getItem(id);
-    const agent = item?.agent || "shared";
-    const notes = noteParts.join(" ");
-    appendFeedback(agent, `feedback ${id}: ${notes}`);
-    return reply(
-      callback,
-      message,
-      `Saved feedback on ${id} for ${agent}.`,
-      "STORE_FEEDBACK",
-    );
+    return withDesk(message, callback, "STORE_FEEDBACK", async (access) => {
+      const [, id, ...noteParts] = textOf(message).split(/\s+/);
+      const found = assertDeskItem(access, id);
+      if (typeof found === "string") {
+        return reply(callback, message, found, "STORE_FEEDBACK");
+      }
+      const notes = noteParts.join(" ");
+      appendFeedback(found.agent, `feedback ${id}: ${notes}`);
+      return reply(
+        callback,
+        message,
+        `Saved feedback on ${id} for ${found.agent}.`,
+        "STORE_FEEDBACK",
+      );
+    });
   },
   examples: [
     [

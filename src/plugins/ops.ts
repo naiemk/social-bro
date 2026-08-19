@@ -18,6 +18,7 @@ import {
   isAllowlisted,
   parseHitlCommand,
 } from "../lib/hitl.ts";
+import { resolveDesk } from "../lib/telegram-desk.ts";
 import {
   formatOpsStatus,
   readOpsStatus,
@@ -55,6 +56,10 @@ const statusAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
+    const access = resolveDesk(message);
+    if (!access.ok) {
+      return reply(callback, message, access.error, "OPS_STATUS");
+    }
     const slug = textOf(message).split(/\s+/)[1];
     return reply(
       callback,
@@ -87,6 +92,10 @@ const pauseAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
+    const access = resolveDesk(message);
+    if (!access.ok) {
+      return reply(callback, message, access.error, "PAUSE_AGENT");
+    }
     const slug = textOf(message).split(/\s+/)[1];
     setPaused(slug, true);
     return reply(
@@ -120,6 +129,10 @@ const resumeAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
+    const access = resolveDesk(message);
+    if (!access.ok) {
+      return reply(callback, message, access.error, "RESUME_AGENT");
+    }
     const slug = textOf(message).split(/\s+/)[1];
     setPaused(slug, false);
     return reply(callback, message, `Resumed ${slug}.`, "RESUME_AGENT");
@@ -147,6 +160,10 @@ const helpAction: Action = {
     _options,
     callback,
   ): Promise<ActionResult> => {
+    const access = resolveDesk(message);
+    if (!access.ok) {
+      return reply(callback, message, access.error, "HITL_HELP");
+    }
     return reply(callback, message, HITL_HELP, "HITL_HELP");
   },
   examples: [
