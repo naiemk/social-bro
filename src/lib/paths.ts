@@ -11,8 +11,29 @@ export function resolveData(...segments: string[]): string {
   return path.join(getDataRoot(), ...segments);
 }
 
+export function resolveProjectData(
+  projectId: string,
+  ...segments: string[]
+): string {
+  return resolveData("projects", projectId, ...segments);
+}
+
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+export function readJsonFile<T>(file: string, fallback: T): T {
+  try {
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeJsonFile(file: string, value: unknown): void {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
 export const QUEUE_STATES = [

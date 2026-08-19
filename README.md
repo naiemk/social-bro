@@ -32,6 +32,28 @@ For local-only (free): set `OLLAMA_API_ENDPOINT=http://localhost:11434/api` and 
 
 ---
 
+## Operator dashboard
+
+Sign in at `http://localhost:3000/dashboard` (or the Vite app on 5173). This phase uses a **hardcoded main user** and an **in-app token economy** — no real-money payments.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DASHBOARD_USER` | `main` | Operator username |
+| `DASHBOARD_PASSWORD` | `changeme` | Operator password |
+
+Flow:
+
+1. Sign in as `main` / `changeme`.
+2. Create a project (free) — it seeds the five social roles.
+3. Configure roles, caps, quiet hours, and voice (free).
+4. Admin → grant tokens, or Credits → buy an in-app pack (ledger only, not Stripe).
+5. Run a job. Each draft/video action spends tokens from `billing.actions` in `config.yaml`. The job **stops as soon as the wallet cannot cover the next action**.
+6. Activity shows produced items, token cost, and public links once you mark them published.
+
+Defining and configuring projects is free. Running jobs requires tokens.
+
+---
+
 ## Configuration (`config.yaml` + `.env`)
 
 Non-secret runtime behavior now lives in [`config.yaml`](./config.yaml). Keep secrets in `.env`.
@@ -54,6 +76,8 @@ Non-secret runtime behavior now lives in [`config.yaml`](./config.yaml). Keep se
 | `AUTO_APPROVE_FOLLOWBACK_MAX` | `0` | Follow-back lists — always HOLD by default |
 | `REPLICATE_API_TOKEN` | — | Required for AI video generation (Replicate provider) |
 | `SOCIAL_OPS_CONFIG` | `./config.yaml` | Path to main YAML config |
+| `DASHBOARD_USER` | `main` | Operator dashboard username |
+| `DASHBOARD_PASSWORD` | `changeme` | Operator dashboard password |
 | `WHATSAPP_ENABLED` | `false` | Enable Baileys WhatsApp QR login |
 | `POSTGRES_URL` | — | Use Postgres instead of the default PGLite |
 
@@ -181,6 +205,7 @@ Auto-update:
 src/
   characters/          agent definitions (twitter-guy, instagram-guy, tg-guy, youtube-guy, blog-guy)
   plugins/
+    dashboard.ts       operator HTTP API + /dashboard
     content-queue.ts   pending → approved → published queue with sensitivity scoring
     ops.ts             rest, pause, /status heartbeats
     video-clips.ts     AI video plan/render workflow + quality checks
@@ -194,6 +219,12 @@ src/
     ops-store.ts       shared ops state + Telegram alerts
     feedback.ts        feedback writer
     paths.ts           centralised path constants
+    auth.ts            hardcoded dashboard login + sessions
+    projects.ts        operator projects
+    roles-store.ts     per-project social roles
+    billing.ts         in-app credit ledger
+    jobs.ts            billed job runner
+    activity.ts        activity feed
 knowledge/
   brand.md             voice, tone, brand rules
   support-faq.md       FAQ answers for TG Guy
@@ -208,13 +239,19 @@ ops/                   runtime state files (gitignored)
 
 ---
 
+## Development
+
+Social Ops local loop: `bun install`, copy `.env.example`, then `elizaos start` or `bun run dev`.
+
 ## Testing
 
 ```bash
 bun test src/__tests__/queue.test.ts \
          src/__tests__/hitl-rest.test.ts \
          src/__tests__/sensitivity.test.ts \
-         src/__tests__/social-ops.test.ts
+         src/__tests__/config-yaml.test.ts \
+         src/__tests__/social-ops.test.ts \
+         src/__tests__/platform.test.ts
 bun test          # full suite
 elizaos test      # elizaOS runtime tests
 ```

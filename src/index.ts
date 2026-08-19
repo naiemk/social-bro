@@ -13,10 +13,11 @@ import { youtubeGuy } from "./characters/youtube-guy.ts";
 import { blogGuy } from "./characters/blog-guy.ts";
 import contentQueuePlugin from "./plugins/content-queue.ts";
 import opsPlugin from "./plugins/ops.ts";
+import dashboardPlugin from "./plugins/dashboard.ts";
 import videoClipsPlugin from "./plugins/video-clips.ts";
 import whatsappPlugin from "./plugins/whatsapp.ts";
 
-const sharedRuntimePlugins = [contentQueuePlugin, opsPlugin];
+const sharedRuntimePlugins = [contentQueuePlugin, opsPlugin, dashboardPlugin];
 
 function initNamed(name: string) {
   return async (runtime: IAgentRuntime) => {

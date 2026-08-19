@@ -25,3 +25,25 @@ video:
 
 deploy:
   appPort: 3000
+
+billing:
+  actions:
+    draft.post: 1
+    draft.reply: 1
+    draft.support: 1
+    draft.blog: 3
+    draft.youtube: 3
+    draft.instagram: 2
+    draft.follow-back: 1
+    video.plan: 5
+    video.render: 20
+  packages:
+    - id: starter
+      tokens: 100
+      label: Starter 100
+    - id: growth
+      tokens: 500
+      label: Growth 500
+    - id: studio
+      tokens: 2000
+      label: Studio 2000

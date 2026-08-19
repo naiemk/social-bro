@@ -24,15 +24,26 @@ export interface QueueItem {
   sensitivityLevel?: string;
   flags?: string[];
   autoApproved?: boolean;
+  projectId?: string;
+  jobId?: string;
+  tokens?: number;
+  publicUrl?: string;
   filePath: string;
 }
 
 const FRONT_MATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
-function queueDir(status: QueueState, platform?: string): string {
+function queueDir(
+  status: QueueState,
+  platform?: string,
+  projectId?: string,
+): string {
+  const root = projectId
+    ? ["projects", projectId, "content-queue"]
+    : ["content-queue"];
   return platform
-    ? resolveData("content-queue", status, platform)
-    : resolveData("content-queue", status);
+    ? resolveData(...root, status, platform)
+    : resolveData(...root, status);
 }
 
 function parseFrontMatter(raw: string): Record<string, string> {
@@ -71,6 +82,10 @@ sensitivity: ${item.sensitivity ?? ""}
 sensitivityLevel: ${item.sensitivityLevel || ""}
 flags: ${JSON.stringify((item.flags || []).join(","))}
 autoApproved: ${item.autoApproved ? "true" : "false"}
+projectId: ${item.projectId || ""}
+jobId: ${item.jobId || ""}
+tokens: ${item.tokens ?? ""}
+publicUrl: ${JSON.stringify(item.publicUrl || "")}
 ---
 
 ${item.body.trim()}\n`;
@@ -100,6 +115,10 @@ function parseFile(filePath: string, status: QueueState): QueueItem | null {
     sensitivityLevel: meta.sensitivityLevel,
     flags: meta.flags ? meta.flags.split(",").filter(Boolean) : [],
     autoApproved: meta.autoApproved === "true",
+    projectId: meta.projectId || undefined,
+    jobId: meta.jobId || undefined,
+    tokens: meta.tokens ? Number(meta.tokens) : undefined,
+    publicUrl: meta.publicUrl || undefined,
     filePath,
   };
 }
@@ -109,7 +128,7 @@ export function createItemId(prefix: string): string {
   return `${prefix}-${rand}`;
 }
 
-export function ensureQueueLayout(): void {
+export function ensureQueueLayout(projectId?: string): void {
   const platforms = [
     "twitter",
     "instagram",
@@ -125,8 +144,9 @@ export function ensureQueueLayout(): void {
     "published",
   ] as QueueState[]) {
     for (const platform of platforms) {
-      ensureDir(queueDir(status, platform));
-      const keep = path.join(queueDir(status, platform), ".gitkeep");
+      const dir = queueDir(status, platform, projectId);
+      ensureDir(dir);
+      const keep = path.join(dir, ".gitkeep");
       if (!fs.existsSync(keep)) fs.writeFileSync(keep, "");
     }
   }
@@ -146,8 +166,12 @@ export function draftItem(input: {
   flags?: string[];
   autoApproved?: boolean;
   notes?: string;
+  projectId?: string;
+  jobId?: string;
+  tokens?: number;
+  publicUrl?: string;
 }): QueueItem {
-  ensureQueueLayout();
+  ensureQueueLayout(input.projectId);
   const now = new Date().toISOString();
   const id = createItemId(input.prefix || input.platform.slice(0, 2));
   const status: QueueState = input.autoApproved ? "approved" : "pending";
@@ -168,37 +192,66 @@ export function draftItem(input: {
     sensitivityLevel: input.sensitivityLevel,
     flags: input.flags || [],
     autoApproved: Boolean(input.autoApproved),
+    projectId: input.projectId,
+    jobId: input.jobId,
+    tokens: input.tokens,
+    publicUrl: input.publicUrl,
   };
   const filePath = path.join(
-    queueDir(status, String(input.platform)),
+    queueDir(status, String(input.platform), input.projectId),
     `${id}.md`,
   );
   fs.writeFileSync(filePath, serializeItem(item));
   return { ...item, filePath };
 }
 
-export function listQueue(status?: QueueState, platform?: string): QueueItem[] {
-  ensureQueueLayout();
+function walkQueueDir(
+  dir: string,
+  status: QueueState,
+  items: QueueItem[],
+): void {
+  if (!fs.existsSync(dir)) return;
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else {
+        const parsed = parseFile(full, status);
+        if (parsed) items.push(parsed);
+      }
+    }
+  };
+  walk(dir);
+}
+
+export function listQueue(
+  status?: QueueState,
+  platform?: string,
+  projectId?: string,
+): QueueItem[] {
+  ensureQueueLayout(projectId);
   const states: QueueState[] = status
     ? [status]
     : ["pending", "approved", "rejected", "published"];
   const items: QueueItem[] = [];
   for (const st of states) {
+    if (projectId) {
+      walkQueueDir(queueDir(st, platform, projectId), st, items);
+      continue;
+    }
     const dir = platform
       ? queueDir(st, platform)
       : resolveData("content-queue", st);
-    if (!fs.existsSync(dir)) continue;
-    const walk = (current: string) => {
-      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-        const full = path.join(current, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else {
-          const parsed = parseFile(full, st);
-          if (parsed) items.push(parsed);
-        }
+    walkQueueDir(dir, st, items);
+    const projectsRoot = resolveData("projects");
+    if (fs.existsSync(projectsRoot)) {
+      for (const entry of fs.readdirSync(projectsRoot, {
+        withFileTypes: true,
+      })) {
+        if (!entry.isDirectory()) continue;
+        walkQueueDir(queueDir(st, platform, entry.name), st, items);
       }
-    };
-    walk(dir);
+    }
   }
   return items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
@@ -223,7 +276,7 @@ export function moveItem(
     updatedAt: new Date().toISOString(),
   };
   const dest = path.join(
-    queueDir(nextStatus, String(item.platform)),
+    queueDir(nextStatus, String(item.platform), item.projectId),
     `${item.id}.md`,
   );
   ensureDir(path.dirname(dest));
@@ -232,6 +285,20 @@ export function moveItem(
     fs.unlinkSync(item.filePath);
   }
   return { ...updated, filePath: dest };
+}
+
+export function markPublished(id: string, publicUrl?: string): QueueItem {
+  const item = getItem(id);
+  if (!item) throw new Error(`Queue item not found: ${id}`);
+  const moved = moveItem(id, "published", item.notes);
+  if (!publicUrl) return moved;
+  const updated: Omit<QueueItem, "filePath"> = {
+    ...moved,
+    publicUrl,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(moved.filePath, serializeItem(updated));
+  return { ...updated, filePath: moved.filePath };
 }
 
 export function formatQueueList(items: QueueItem[], limit = 15): string {

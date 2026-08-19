@@ -21,6 +21,28 @@ export interface ReplicateConfig {
   model: string;
 }
 
+export type BillingActionKey =
+  | "draft.post"
+  | "draft.reply"
+  | "draft.support"
+  | "draft.blog"
+  | "draft.youtube"
+  | "draft.instagram"
+  | "draft.follow-back"
+  | "video.plan"
+  | "video.render";
+
+export interface BillingPackage {
+  id: string;
+  tokens: number;
+  label: string;
+}
+
+export interface BillingConfig {
+  actions: Record<BillingActionKey, number>;
+  packages: BillingPackage[];
+}
+
 export interface SocialOpsConfig {
   dataDir: string;
   autoApprove: {
@@ -39,6 +61,7 @@ export interface SocialOpsConfig {
   deploy: {
     appPort: number;
   };
+  billing: BillingConfig;
 }
 
 const defaults: SocialOpsConfig = {
@@ -71,6 +94,24 @@ const defaults: SocialOpsConfig = {
   },
   deploy: {
     appPort: 3000,
+  },
+  billing: {
+    actions: {
+      "draft.post": 1,
+      "draft.reply": 1,
+      "draft.support": 1,
+      "draft.blog": 3,
+      "draft.youtube": 3,
+      "draft.instagram": 2,
+      "draft.follow-back": 1,
+      "video.plan": 5,
+      "video.render": 20,
+    },
+    packages: [
+      { id: "starter", tokens: 100, label: "Starter 100" },
+      { id: "growth", tokens: 500, label: "Growth 500" },
+      { id: "studio", tokens: 2000, label: "Studio 2000" },
+    ],
   },
 };
 
@@ -116,6 +157,9 @@ export function loadSocialOpsConfig(): SocialOpsConfig {
   const quality = asObject(video.quality);
   const replicate = asObject(video.replicate);
   const deploy = asObject(root.deploy);
+  const billing = asObject(root.billing);
+  const billingActions = asObject(billing.actions);
+  const packagesRaw = Array.isArray(billing.packages) ? billing.packages : [];
 
   cached = {
     dataDir: str(root.dataDir, defaults.dataDir),
@@ -165,6 +209,59 @@ export function loadSocialOpsConfig(): SocialOpsConfig {
     },
     deploy: {
       appPort: num(deploy.appPort, defaults.deploy.appPort),
+    },
+    billing: {
+      actions: {
+        "draft.post": num(
+          billingActions["draft.post"],
+          defaults.billing.actions["draft.post"],
+        ),
+        "draft.reply": num(
+          billingActions["draft.reply"],
+          defaults.billing.actions["draft.reply"],
+        ),
+        "draft.support": num(
+          billingActions["draft.support"],
+          defaults.billing.actions["draft.support"],
+        ),
+        "draft.blog": num(
+          billingActions["draft.blog"],
+          defaults.billing.actions["draft.blog"],
+        ),
+        "draft.youtube": num(
+          billingActions["draft.youtube"],
+          defaults.billing.actions["draft.youtube"],
+        ),
+        "draft.instagram": num(
+          billingActions["draft.instagram"],
+          defaults.billing.actions["draft.instagram"],
+        ),
+        "draft.follow-back": num(
+          billingActions["draft.follow-back"],
+          defaults.billing.actions["draft.follow-back"],
+        ),
+        "video.plan": num(
+          billingActions["video.plan"],
+          defaults.billing.actions["video.plan"],
+        ),
+        "video.render": num(
+          billingActions["video.render"],
+          defaults.billing.actions["video.render"],
+        ),
+      },
+      packages:
+        packagesRaw.length > 0
+          ? packagesRaw
+              .map((pkg) => {
+                const row = asObject(pkg);
+                return {
+                  id: str(row.id, ""),
+                  tokens: num(row.tokens, 0),
+                  label: str(row.label, str(row.id, "Package")),
+                };
+              })
+              .filter((pkg) => pkg.id && pkg.tokens > 0)
+          : defaults.billing.packages,
     },
   };
 

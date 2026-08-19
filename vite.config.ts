@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   root: 'src/frontend',
+  base: '/dashboard/',
   build: {
     outDir: '../../dist/frontend',
     emptyOutDir: true,
@@ -31,6 +32,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/app': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
