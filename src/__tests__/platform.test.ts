@@ -16,6 +16,7 @@ import {
 import { createAndRunJob } from "../lib/jobs.ts";
 import { handleAppRoute } from "../plugins/dashboard.ts";
 import { createProject, listProjects } from "../lib/projects.ts";
+import { createAccount, listAccounts } from "../lib/accounts.ts";
 import {
   createRole,
   deleteRole,
@@ -88,6 +89,23 @@ async function call(
   return res;
 }
 
+function seedAccounts(userId: string) {
+  for (const platform of [
+    "twitter",
+    "instagram",
+    "youtube",
+    "blog",
+    "support",
+  ] as const) {
+    createAccount({
+      ownerUserId: userId,
+      platform,
+      handle: `acme-${platform}`,
+      displayName: `Acme ${platform}`,
+    });
+  }
+}
+
 describe("operator platform", () => {
   let env: ReturnType<typeof withTmpData>;
 
@@ -144,6 +162,80 @@ describe("operator platform", () => {
     expect(getBalance(session.user.id)).toBe(0);
   });
 
+  it("lets each user define social accounts and bind them to roles", async () => {
+    const session = login("main", "changeme")!;
+    const created = await call("POST", "/app/accounts", {
+      token: session.token,
+      body: { platform: "twitter", handle: "@acme" },
+    });
+    expect(created.statusCode).toBe(201);
+    const account = (
+      created.body as {
+        account: { id: string; handle: string; profileUrl: string };
+      }
+    ).account;
+    expect(account.handle).toBe("acme");
+    expect(account.profileUrl).toContain("x.com/acme");
+    expect(listAccounts(session.user.id)).toHaveLength(1);
+
+    const project = createProject({
+      name: "Bound",
+      ownerUserId: session.user.id,
+    });
+    const bound = await call(
+      "PUT",
+      `/app/projects/${project.id}/roles/twitter-guy`,
+      {
+        token: session.token,
+        params: { id: project.id, slug: "twitter-guy" },
+        body: { accountId: account.id },
+      },
+    );
+    expect(bound.statusCode).toBe(200);
+    expect(
+      listRoles(project.id).find((role) => role.slug === "twitter-guy")
+        ?.accountId,
+    ).toBe(account.id);
+
+    const foreign = createAccount({
+      ownerUserId: "someone-else",
+      platform: "twitter",
+      handle: "not-yours",
+    });
+    const denied = await call(
+      "PUT",
+      `/app/projects/${project.id}/roles/twitter-guy`,
+      {
+        token: session.token,
+        params: { id: project.id, slug: "twitter-guy" },
+        body: { accountId: foreign.id },
+      },
+    );
+    expect(denied.statusCode).toBe(400);
+  });
+
+  it("skips jobs when the user has not defined a matching account", () => {
+    const session = login("main", "changeme")!;
+    const project = createProject({
+      name: "No accounts",
+      ownerUserId: session.user.id,
+    });
+    grantTokens(session.user.id, 20);
+    const job = createAndRunJob({
+      projectId: project.id,
+      ownerUserId: session.user.id,
+      roleSlugs: ["twitter-guy"],
+    });
+    expect(job.status).toBe("completed");
+    expect(job.produced).toHaveLength(0);
+    expect(job.tokensSpent).toBe(0);
+    expect(
+      listActivity(project.id).some((row) =>
+        String(row.note).includes("Add a twitter account"),
+      ),
+    ).toBe(true);
+  });
+
   it("cannot delete built-in roles and can add a custom clone", () => {
     const project = createProject({ name: "P", ownerUserId: "user-main" });
     expect(() => deleteRole(project.id, "twitter-guy")).toThrow();
@@ -184,6 +276,7 @@ describe("operator platform", () => {
 
   it("runs a job that spends tokens and stops when credits run out", () => {
     const session = login("main", "changeme")!;
+    seedAccounts(session.user.id);
     const project = createProject({
       name: "Launch",
       ownerUserId: session.user.id,
@@ -201,6 +294,9 @@ describe("operator platform", () => {
       job.produced.length,
     );
     expect(listActivity(project.id).some((row) => row.tokens > 0)).toBe(true);
+    expect(listActivity(project.id).some((row) => row.accountHandle)).toBe(
+      true,
+    );
     expect(getBalance(session.user.id)).toBeLessThan(2);
   });
 
@@ -219,6 +315,7 @@ describe("operator platform", () => {
       body: { name: "Ops" },
     });
     const projectId = (created.body as { project: { id: string } }).project.id;
+    seedAccounts(session.user.id);
     const run = await call("POST", `/app/projects/${projectId}/jobs`, {
       token: session.token,
       params: { id: projectId },

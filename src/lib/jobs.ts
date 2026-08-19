@@ -14,6 +14,11 @@ import {
   resolveProjectData,
   writeJsonFile,
 } from "./paths.ts";
+import {
+  accountSkipReason,
+  resolveAccountForRole,
+  type SocialAccount,
+} from "./accounts.ts";
 import { getProject, updateProject } from "./projects.ts";
 import { draftItem, type QueueItem } from "./queue.ts";
 import { listRoles, type SocialRole } from "./roles-store.ts";
@@ -160,14 +165,22 @@ function usageOf(
   return current;
 }
 
-export function composeDraft(role: SocialRole, brief: string): string {
+export function composeDraft(
+  role: SocialRole,
+  brief: string,
+  account?: SocialAccount | null,
+): string {
   const prompt =
     brief.trim() || `Produce this week's on-brand ${role.platform} update.`;
   const example = role.postExamples[0];
   const voice = role.adjectives.slice(0, 4).join(", ");
   const style = role.style.post.slice(0, 3).join("; ");
+  const asAccount = account
+    ? `Post as @${account.handle}${account.profileUrl ? ` (${account.profileUrl})` : ""}`
+    : "";
   return [
     `${role.name} · ${role.platform}`,
+    asAccount,
     prompt,
     voice ? `Voice: ${voice}.` : "",
     style ? `Style: ${style}.` : "",
@@ -229,6 +242,29 @@ function produceForRole(
   item?: QueueItem;
   skipped?: string;
 } {
+  const account = resolveAccountForRole(job.ownerUserId, role);
+  const missingAccount = accountSkipReason(job.ownerUserId, role);
+  if (missingAccount) {
+    appendActivity({
+      ts: new Date().toISOString(),
+      projectId: job.projectId,
+      jobId: job.id,
+      roleSlug: role.slug,
+      platform: role.platform,
+      action: "skip",
+      status: "skipped",
+      tokens: 0,
+      title: role.name,
+      note: missingAccount,
+    });
+    return {
+      ok: true,
+      cost: 0,
+      balance: getBalance(job.ownerUserId),
+      skipped: missingAccount,
+    };
+  }
+
   const gate = canProduce(job.projectId, role);
   if (!gate.allowed) {
     appendActivity({
@@ -260,7 +296,7 @@ function produceForRole(
   });
   if (!spend.ok) return spend;
 
-  const body = composeDraft(role, job.brief);
+  const body = composeDraft(role, job.brief, account);
   const scored = scoreContent({ body, platform: role.platform, kind });
   const item = draftItem({
     agent: role.slug,
@@ -277,6 +313,9 @@ function produceForRole(
     projectId: job.projectId,
     jobId: job.id,
     tokens: spend.cost,
+    accountId: account?.id,
+    accountHandle: account?.handle,
+    publicUrl: account?.profileUrl,
   });
   recordUsage(job.projectId, role.slug);
   appendActivity({
@@ -291,6 +330,9 @@ function produceForRole(
     status: item.status,
     tokens: spend.cost,
     title: item.title,
+    publicUrl: account?.profileUrl,
+    accountId: account?.id,
+    accountHandle: account?.handle,
   });
   return { ...spend, item };
 }

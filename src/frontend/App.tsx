@@ -8,6 +8,7 @@ import {
   type Job,
   type Project,
   type Role,
+  type SocialAccount,
   type User,
 } from "./api";
 
@@ -18,6 +19,7 @@ type Route =
   | { name: "role"; id: string; slug: string }
   | { name: "activity"; id: string }
   | { name: "credits" }
+  | { name: "accounts" }
   | { name: "admin" };
 
 function parseHash(): Route {
@@ -25,6 +27,7 @@ function parseHash(): Route {
   const parts = hash.split("/").filter(Boolean);
   if (parts[0] === "login") return { name: "login" };
   if (parts[0] === "credits") return { name: "credits" };
+  if (parts[0] === "accounts") return { name: "accounts" };
   if (parts[0] === "admin") return { name: "admin" };
   if (parts[0] === "projects" && parts[1] && parts[2] === "activity") {
     return { name: "activity", id: parts[1] };
@@ -109,6 +112,7 @@ export default function App() {
           </button>
           <nav className="flex gap-3 text-sm text-muted-foreground">
             <button onClick={() => go("/projects")}>Projects</button>
+            <button onClick={() => go("/accounts")}>Accounts</button>
             <button onClick={() => go("/credits")}>Credits</button>
             {user.isAdmin && (
               <button onClick={() => go("/admin")}>Admin</button>
@@ -174,6 +178,7 @@ export default function App() {
             onError={setError}
           />
         )}
+        {route.name === "accounts" && user && <Accounts onError={setError} />}
         {route.name === "admin" && user?.isAdmin && (
           <Admin setBalance={setBalance} onError={setError} />
         )}
@@ -237,6 +242,137 @@ function Login({
         Continue
       </button>
     </form>
+  );
+}
+
+function Accounts({ onError }: { onError: (msg: string) => void }) {
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [form, setForm] = useState({
+    platform: "twitter",
+    handle: "",
+    displayName: "",
+    profileUrl: "",
+  });
+  const load = () =>
+    api<{ accounts: SocialAccount[] }>("/app/accounts")
+      .then((data) => setAccounts(data.accounts))
+      .catch((err) => onError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-2">Social accounts</h1>
+      <p className="text-sm text-muted-foreground mb-6">
+        These are your handles. Bind them to project roles so jobs draft for the
+        right account. No live posting from this phase.
+      </p>
+      <form
+        className="rounded-lg border border-border p-4 mb-6 grid gap-3 md:grid-cols-5"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          try {
+            await api("/app/accounts", {
+              method: "POST",
+              body: JSON.stringify(form),
+            });
+            setForm({
+              platform: "twitter",
+              handle: "",
+              displayName: "",
+              profileUrl: "",
+            });
+            load();
+          } catch (err) {
+            onError(err instanceof Error ? err.message : "Save failed");
+          }
+        }}
+      >
+        <select
+          className={inputClass}
+          value={form.platform}
+          onChange={(e) => setForm({ ...form, platform: e.target.value })}
+        >
+          {["twitter", "instagram", "youtube", "blog", "support"].map(
+            (platform) => (
+              <option key={platform} value={platform}>
+                {platform}
+              </option>
+            ),
+          )}
+        </select>
+        <input
+          className={inputClass}
+          placeholder="handle"
+          value={form.handle}
+          onChange={(e) => setForm({ ...form, handle: e.target.value })}
+          required
+        />
+        <input
+          className={inputClass}
+          placeholder="Display name"
+          value={form.displayName}
+          onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+        />
+        <input
+          className={inputClass}
+          placeholder="Profile URL (optional)"
+          value={form.profileUrl}
+          onChange={(e) => setForm({ ...form, profileUrl: e.target.value })}
+        />
+        <button className="rounded-md bg-primary text-primary-foreground">
+          Add account
+        </button>
+      </form>
+      <div className="grid gap-3">
+        {accounts.map((account) => (
+          <div
+            key={account.id}
+            className="rounded-lg border border-border p-4 flex items-start justify-between gap-3"
+          >
+            <div>
+              <div className="font-medium">
+                @{account.handle}{" "}
+                <span className="text-muted-foreground text-sm">
+                  {account.platform}
+                </span>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {account.displayName}
+                {account.profileUrl ? (
+                  <>
+                    {" · "}
+                    <a className="underline" href={account.profileUrl}>
+                      {account.profileUrl}
+                    </a>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <button
+              className="text-sm text-destructive"
+              onClick={async () => {
+                try {
+                  await api(`/app/accounts/${account.id}`, {
+                    method: "DELETE",
+                  });
+                  load();
+                } catch (err) {
+                  onError(err instanceof Error ? err.message : "Delete failed");
+                }
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        {accounts.length === 0 && (
+          <p className="text-muted-foreground">
+            Add at least one account per platform you want to run.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -324,6 +460,7 @@ function ProjectHome({
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [brief, setBrief] = useState("");
   const [name, setName] = useState("");
@@ -336,12 +473,14 @@ function ProjectHome({
     api<{
       project: Project;
       roles: Role[];
+      accounts: SocialAccount[];
       jobs: Job[];
       balance: number;
     }>(`/app/projects/${projectId}`)
       .then((data) => {
         setProject(data.project);
         setRoles(data.roles);
+        setAccounts(data.accounts || []);
         setJobs(data.jobs);
         setBrief(data.project.brief);
         setName(data.project.name);
@@ -359,15 +498,23 @@ function ProjectHome({
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-sm text-muted-foreground">
             Status {project.status} · configuring is free · running spends
-            tokens
+            tokens. Bind each role to one of your social accounts.
           </p>
         </div>
-        <button
-          className="text-sm text-muted-foreground"
-          onClick={() => go(`/projects/${projectId}/activity`)}
-        >
-          Activity
-        </button>
+        <div className="flex gap-3 text-sm">
+          <button
+            className="text-muted-foreground"
+            onClick={() => go("/accounts")}
+          >
+            Accounts
+          </button>
+          <button
+            className="text-muted-foreground"
+            onClick={() => go(`/projects/${projectId}/activity`)}
+          >
+            Activity
+          </button>
+        </div>
       </div>
       <form
         className="grid gap-3 md:grid-cols-2"
@@ -442,19 +589,72 @@ function ProjectHome({
       <section>
         <h2 className="text-lg font-medium mb-3">Roles</h2>
         <div className="grid gap-3 md:grid-cols-2">
-          {roles.map((role) => (
-            <button
-              key={role.slug}
-              className="text-left rounded-lg border border-border p-4 hover:bg-accent"
-              onClick={() => go(`/projects/${projectId}/roles/${role.slug}`)}
-            >
-              <div className="font-medium">{role.name}</div>
-              <div className="text-sm text-muted-foreground">
-                {role.platform} · cap {role.dailyDraftCap}/day ·{" "}
-                {role.enabled ? "enabled" : "disabled"}
+          {roles.map((role) => {
+            const bound = accounts.find(
+              (account) => account.id === role.accountId,
+            );
+            const matches = accounts.filter(
+              (account) => account.platform === role.platform,
+            );
+            const inferred =
+              !bound && matches.length === 1 ? matches[0] : undefined;
+            const shown = bound || inferred;
+            return (
+              <div
+                key={role.slug}
+                className="rounded-lg border border-border p-4"
+              >
+                <button
+                  className="text-left w-full hover:opacity-80"
+                  onClick={() =>
+                    go(`/projects/${projectId}/roles/${role.slug}`)
+                  }
+                >
+                  <div className="font-medium">{role.name}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {role.platform} · cap {role.dailyDraftCap}/day ·{" "}
+                    {role.enabled ? "enabled" : "disabled"}
+                  </div>
+                  <div className="text-sm mt-1">
+                    {shown
+                      ? `@${shown.handle}`
+                      : "No account — add one or pick it on the role"}
+                  </div>
+                </button>
+                {matches.length > 0 && (
+                  <select
+                    className={`${inputClass} mt-3`}
+                    value={role.accountId || inferred?.id || ""}
+                    onChange={async (event) => {
+                      try {
+                        await api(
+                          `/app/projects/${projectId}/roles/${role.slug}`,
+                          {
+                            method: "PUT",
+                            body: JSON.stringify({
+                              accountId: event.target.value || "",
+                            }),
+                          },
+                        );
+                        load();
+                      } catch (err) {
+                        onError(
+                          err instanceof Error ? err.message : "Bind failed",
+                        );
+                      }
+                    }}
+                  >
+                    <option value="">Select account</option>
+                    {matches.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        @{account.handle}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
         <form
           className="mt-4 grid gap-3 md:grid-cols-4"
@@ -520,9 +720,16 @@ function RoleEditor({
   onError: (msg: string) => void;
 }) {
   const [role, setRole] = useState<Role | null>(null);
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   useEffect(() => {
-    api<{ role: Role }>(`/app/projects/${projectId}/roles/${slug}`)
-      .then((data) => setRole(data.role))
+    Promise.all([
+      api<{ role: Role }>(`/app/projects/${projectId}/roles/${slug}`),
+      api<{ accounts: SocialAccount[] }>("/app/accounts"),
+    ])
+      .then(([roleData, accountData]) => {
+        setRole(roleData.role);
+        setAccounts(accountData.accounts);
+      })
       .catch((err) => onError(err.message));
   }, [projectId, slug]);
   if (!role) return <div>Loading role…</div>;
@@ -565,6 +772,22 @@ function RoleEditor({
             checked={role.enabled}
             onChange={(e) => set({ enabled: e.target.checked })}
           />
+        </Field>
+        <Field label="Social account">
+          <select
+            className={inputClass}
+            value={role.accountId || ""}
+            onChange={(e) => set({ accountId: e.target.value || undefined })}
+          >
+            <option value="">Select {role.platform} account</option>
+            {accounts
+              .filter((account) => account.platform === role.platform)
+              .map((account) => (
+                <option key={account.id} value={account.id}>
+                  @{account.handle} ({account.displayName})
+                </option>
+              ))}
+          </select>
         </Field>
         <Field label="Daily draft cap">
           <input
@@ -694,6 +917,7 @@ function Activity({
             <tr className="text-left text-muted-foreground border-b border-border">
               <th className="py-2">Time</th>
               <th>Role</th>
+              <th>Account</th>
               <th>Action</th>
               <th>Status</th>
               <th>Tokens</th>
@@ -707,6 +931,7 @@ function Activity({
                   {item.ts.replace("T", " ").slice(0, 19)}
                 </td>
                 <td>{item.roleSlug}</td>
+                <td>{item.accountHandle ? `@${item.accountHandle}` : "—"}</td>
                 <td>
                   {item.action}
                   {item.queueItemId ? ` · ${item.queueItemId}` : ""}

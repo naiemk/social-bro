@@ -16,6 +16,8 @@ export interface ActivityEvent {
   title: string;
   publicUrl?: string;
   note?: string;
+  accountId?: string;
+  accountHandle?: string;
 }
 
 function activityPath(projectId: string): string {

@@ -51,6 +51,7 @@ export interface SocialRole {
   style: RoleStyle;
   postExamples: string[];
   builtin: boolean;
+  accountId?: string;
 }
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -102,6 +103,7 @@ function roleFromCharacter(
     },
     postExamples: asStringArray(character.postExamples),
     builtin: true,
+    accountId: undefined,
   };
 }
 
@@ -188,6 +190,7 @@ function parseRole(raw: unknown, fallbackBuiltin = false): SocialRole | null {
         ? row.builtin
         : fallbackBuiltin ||
           (BUILTIN_ROLE_SLUGS as readonly string[]).includes(slug),
+    accountId: row.accountId ? String(row.accountId) : undefined,
   };
 }
 
@@ -264,6 +267,10 @@ export function upsertRole(
       existing?.builtin ||
       (BUILTIN_ROLE_SLUGS as readonly string[]).includes(slug),
     enabled: input.enabled ?? existing?.enabled ?? true,
+    accountId:
+      input.accountId === "" || input.accountId === null
+        ? undefined
+        : (input.accountId ?? existing?.accountId),
   };
   const idx = roles.findIndex((role) => role.slug === slug);
   if (idx === -1) roles.push(next);
@@ -304,6 +311,19 @@ export function deleteRole(projectId: string, slug: string): void {
     projectId,
     listRoles(projectId).filter((row) => row.slug !== slug),
   );
+}
+
+export function unbindAccount(projectId: string, accountId: string): void {
+  const roles = listRoles(projectId);
+  let changed = false;
+  const next = roles.map((role) => {
+    if (role.accountId !== accountId) return role;
+    changed = true;
+    const copy = { ...role };
+    delete copy.accountId;
+    return copy;
+  });
+  if (changed) writeRoles(projectId, next);
 }
 
 export function readRoleOverlay(

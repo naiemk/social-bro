@@ -73,6 +73,16 @@ export type Role = {
   style: { all: string[]; chat: string[]; post: string[] };
   postExamples: string[];
   builtin: boolean;
+  accountId?: string;
+};
+
+export type SocialAccount = {
+  id: string;
+  platform: string;
+  handle: string;
+  displayName: string;
+  profileUrl: string;
+  notes: string;
 };
 
 export type Job = {
@@ -97,4 +107,5 @@ export type ActivityItem = {
   title: string;
   publicUrl?: string;
   note?: string;
+  accountHandle?: string;
 };

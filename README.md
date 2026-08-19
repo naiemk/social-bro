@@ -45,7 +45,8 @@ Flow:
 
 1. Sign in as `main` / `changeme`.
 2. Create a project (free) — it seeds the five social roles.
-3. Configure roles, caps, quiet hours, and voice (free).
+3. Add your social accounts (Accounts tab), then bind them to roles.
+4. Configure roles, caps, quiet hours, and voice (free).
 4. Admin → grant tokens, or Credits → buy an in-app pack (ledger only, not Stripe).
 5. Run a job. Each draft/video action spends tokens from `billing.actions` in `config.yaml`. The job **stops as soon as the wallet cannot cover the next action**.
 6. Activity shows produced items, token cost, and public links once you mark them published.

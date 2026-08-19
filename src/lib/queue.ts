@@ -28,6 +28,8 @@ export interface QueueItem {
   jobId?: string;
   tokens?: number;
   publicUrl?: string;
+  accountId?: string;
+  accountHandle?: string;
   filePath: string;
 }
 
@@ -86,6 +88,8 @@ projectId: ${item.projectId || ""}
 jobId: ${item.jobId || ""}
 tokens: ${item.tokens ?? ""}
 publicUrl: ${JSON.stringify(item.publicUrl || "")}
+accountId: ${item.accountId || ""}
+accountHandle: ${JSON.stringify(item.accountHandle || "")}
 ---
 
 ${item.body.trim()}\n`;
@@ -119,6 +123,8 @@ function parseFile(filePath: string, status: QueueState): QueueItem | null {
     jobId: meta.jobId || undefined,
     tokens: meta.tokens ? Number(meta.tokens) : undefined,
     publicUrl: meta.publicUrl || undefined,
+    accountId: meta.accountId || undefined,
+    accountHandle: meta.accountHandle || undefined,
     filePath,
   };
 }
@@ -170,6 +176,8 @@ export function draftItem(input: {
   jobId?: string;
   tokens?: number;
   publicUrl?: string;
+  accountId?: string;
+  accountHandle?: string;
 }): QueueItem {
   ensureQueueLayout(input.projectId);
   const now = new Date().toISOString();
@@ -196,6 +204,8 @@ export function draftItem(input: {
     jobId: input.jobId,
     tokens: input.tokens,
     publicUrl: input.publicUrl,
+    accountId: input.accountId,
+    accountHandle: input.accountHandle,
   };
   const filePath = path.join(
     queueDir(status, String(input.platform), input.projectId),

@@ -30,6 +30,14 @@ import {
   sendJson,
   setCookie,
 } from "../lib/http.ts";
+import {
+  createRole,
+  deleteRole,
+  getRole,
+  listRoles,
+  type RolePlatform,
+  upsertRole,
+} from "../lib/roles-store.ts";
 import { createAndRunJob, listJobs, stopJob } from "../lib/jobs.ts";
 import { listQueue, markPublished } from "../lib/queue.ts";
 import {
@@ -41,13 +49,12 @@ import {
   updateProject,
 } from "../lib/projects.ts";
 import {
-  createRole,
-  deleteRole,
-  getRole,
-  listRoles,
-  type RolePlatform,
-  upsertRole,
-} from "../lib/roles-store.ts";
+  createAccount,
+  deleteAccount,
+  listAccounts,
+  updateAccount,
+  assertOwnedAccount,
+} from "../lib/accounts.ts";
 
 function reqPath(req: RouteRequest): string {
   const raw =
@@ -199,6 +206,7 @@ export async function handleAppRoute(
     sendJson(res, 200, {
       project: owned.project,
       roles: listRoles(owned.project.id),
+      accounts: listAccounts(owned.user.id),
       balance: getBalance(owned.user.id),
       spent: spentForProject(owned.project.id),
       jobs: listJobs(owned.project.id).slice(0, 10),
@@ -234,10 +242,15 @@ export async function handleAppRoute(
     const owned = ownedProject(req, res, rolesList.id);
     if (!owned) return;
     try {
+      const platform = String(body.platform || "twitter") as RolePlatform;
+      if (body.accountId) {
+        assertOwnedAccount(owned.user.id, String(body.accountId), platform);
+      }
       const role = createRole(owned.project.id, {
         name: String(body.name || ""),
         slug: String(body.slug || ""),
-        platform: String(body.platform || "twitter") as RolePlatform,
+        platform,
+        accountId: body.accountId ? String(body.accountId) : undefined,
       });
       sendJson(res, 201, { role });
     } catch (error) {
@@ -264,9 +277,18 @@ export async function handleAppRoute(
     const owned = ownedProject(req, res, oneRole.id);
     if (!owned) return;
     try {
+      const patch = body as Partial<import("../lib/roles-store.ts").SocialRole>;
+      if (patch.accountId) {
+        const current = getRole(owned.project.id, oneRole.slug);
+        assertOwnedAccount(
+          owned.user.id,
+          String(patch.accountId),
+          current?.platform,
+        );
+      }
       const role = upsertRole(owned.project.id, {
         slug: oneRole.slug,
-        ...(body as Partial<import("../lib/roles-store.ts").SocialRole>),
+        ...patch,
       });
       sendJson(res, 200, { role });
     } catch (error) {
@@ -460,6 +482,75 @@ export async function handleAppRoute(
     return;
   }
 
+  if (method === "GET" && pathname === "/app/accounts") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    sendJson(res, 200, { accounts: listAccounts(user.id) });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/app/accounts") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    try {
+      const account = createAccount({
+        ownerUserId: user.id,
+        platform: String(body.platform || ""),
+        handle: String(body.handle || ""),
+        displayName:
+          body.displayName !== undefined ? String(body.displayName) : undefined,
+        profileUrl:
+          body.profileUrl !== undefined ? String(body.profileUrl) : undefined,
+        notes: body.notes !== undefined ? String(body.notes) : undefined,
+      });
+      sendJson(res, 201, { account });
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  const oneAccount = pathParam(pathname, "/app/accounts/:id");
+  if (oneAccount && (method === "PUT" || method === "PATCH")) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    try {
+      const account = updateAccount(user.id, oneAccount.id, {
+        handle: body.handle !== undefined ? String(body.handle) : undefined,
+        displayName:
+          body.displayName !== undefined ? String(body.displayName) : undefined,
+        profileUrl:
+          body.profileUrl !== undefined ? String(body.profileUrl) : undefined,
+        notes: body.notes !== undefined ? String(body.notes) : undefined,
+        platform:
+          body.platform !== undefined
+            ? (String(body.platform) as RolePlatform)
+            : undefined,
+      });
+      sendJson(res, 200, { account });
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+  if (oneAccount && method === "DELETE") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    try {
+      deleteAccount(user.id, oneAccount.id);
+      sendJson(res, 200, { ok: true });
+    } catch (error) {
+      sendJson(res, 404, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
   sendJson(res, 404, { error: "Not found" });
 }
 
@@ -537,6 +628,10 @@ export const dashboardPlugin: Plugin = {
     appRoute("app-login", "/app/auth/login", "POST"),
     appRoute("app-logout", "/app/auth/logout", "POST"),
     appRoute("app-me", "/app/auth/me", "GET"),
+    appRoute("app-accounts", "/app/accounts", "GET"),
+    appRoute("app-accounts-create", "/app/accounts", "POST"),
+    appRoute("app-account-update", "/app/accounts/:id", "PUT"),
+    appRoute("app-account-delete", "/app/accounts/:id", "DELETE"),
     appRoute("app-projects", "/app/projects", "GET"),
     appRoute("app-projects-create", "/app/projects", "POST"),
     appRoute("app-project", "/app/projects/:id", "GET"),
