@@ -1,124 +1,190 @@
-# Social Ops
+# social-bro
 
-Five [elizaOS](https://docs.elizaos.ai/) agents for Twitter, Instagram, Telegram/WhatsApp support, YouTube, and blog — **without applying for X/Meta/YouTube developer APIs**.
+Five [elizaOS](https://docs.elizaos.ai/) agents running your social-media and content operations — **no X/Meta/YouTube developer API applications required**.
 
-Nothing outbound ships until a human confirms it. Agents also rest (quiet hours, caps, pause) and report health.
+Nothing outbound ships until a human confirms it (or the sensitivity score is low enough to auto-approve). Agents also respect quiet hours, daily caps, and a manual pause command.
+
+---
 
 ## Agents
 
-| Agent | Job | Live network? |
-| --- | --- | --- |
-| Twitter Guy | Draft tweets, replies, follow-back *review lists* | No. Queue only. |
-| Instagram Guy | Vertical clips + captions | No. Queue only. ffmpeg from `media/source/`. |
-| TG Guy | Support + approval desk + `/status` | Telegram BotFather token. Optional WhatsApp QR. |
-| YouTube Guy | Titles, descriptions, chapters, Shorts packs | No. Queue, then YouTube Studio. |
-| Blog Guy | Markdown posts and site copy | No. Queue, then copy into your site. |
+| Agent | What it does | Live channel? |
+|---|---|---|
+| **Twitter Guy** | Drafts tweets, replies, follow-back review lists | No — queue only |
+| **Instagram Guy** | Vertical clip captions via ffmpeg | No — queue only |
+| **TG Guy** | Live Telegram support + approval desk | Yes — BotFather token |
+| **YouTube Guy** | Titles, descriptions, Shorts packs, chapters | No — queue only |
+| **Blog Guy** | Markdown posts and landing-page copy | No — queue only |
 
-## Human in the loop
+---
 
-You only review **HOLD** items. Low-sensitivity comments skip you.
+## Quick start
 
-Talk to **TG Guy** in Telegram or the local UI (`http://localhost:3000`):
-
-```
-/pending [platform]   # only items that need you (high sensitivity)
-/auto                 # comments that already auto-approved
-/approve <id>
-/edit <id> notes
-/reject <id> reason
-/published <id>
-/feedback <id> notes
-/status [agent]
-/pause twitter-guy
-/resume twitter-guy
-/help
+```bash
+# Prerequisites: Node ≥ 23.3, Bun, ffmpeg (for video clips)
+cp .env.example .env        # fill in at least one model key
+bun install
+bun run build
+elizaos start               # http://localhost:3000
 ```
 
-**How approval works**
+For local-only (free): set `OLLAMA_API_ENDPOINT=http://localhost:11434/api` and `OLLAMA_MODEL=llama3.2`.
 
-1. An agent drafts content. It gets a sensitivity score 0–100 (`low` / `medium` / `high` / `critical`).
-2. **Comments/replies** with score ≤ 35 (default) **auto-approve**. You are not pinged. See them later with `/auto`.
-3. **Original posts, follow-backs, blog/YouTube packs, legal/finance, refunds** stay **HOLD**. `/pending` lists them. `/approve <id>` confirms.
-4. Approve still means “this copy is OK”. Because we are not using X/Instagram/YouTube APIs, you post the approved text in the native app, then `/published <id>`.
+---
 
-Tune with env:
+## Configuration (`.env`)
 
-- `AUTO_APPROVE_REPLY_MAX=35` — comments/replies
-- `AUTO_APPROVE_SUPPORT_MAX=25` — bland FAQ only
-- `AUTO_APPROVE_POST_MAX=0` — original posts never auto (set 20 if you want bland tweets to skip you too)
-- `AUTO_APPROVE_FOLLOWBACK_MAX=0` — follow-back lists always HOLD
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | — | OpenAI / OpenRouter / any OAI-compatible |
+| `OLLAMA_API_ENDPOINT` | `http://localhost:11434/api` | Local Ollama fallback |
+| `OLLAMA_MODEL` | `llama3.2` | Model name to use with Ollama |
+| `TELEGRAM_BOT_TOKEN` | — | BotFather token for TG Guy |
+| `HITL_CHAT_IDS` | (empty = allow all) | Comma-separated Telegram chat ids allowed to issue commands |
+| `DRY_RUN` | `true` | Block all outbound actions |
+| `QUIET_HOURS` | `22:00-08:00` | No drafts outside these hours |
+| `REST_TZ` | `UTC` | Timezone for quiet hours / rest days |
+| `REST_DAYS` | — | Comma-separated days, e.g. `Sat,Sun` |
+| `DAILY_DRAFT_CAP` | — | Max drafts per agent per day |
+| `AUTO_APPROVE_REPLY_MAX` | `35` | Comments/replies auto-approve at this score or below |
+| `AUTO_APPROVE_SUPPORT_MAX` | `25` | Bland FAQ answers auto-send at this score or below |
+| `AUTO_APPROVE_POST_MAX` | `0` | Set > 0 to auto-approve simple original posts |
+| `AUTO_APPROVE_FOLLOWBACK_MAX` | `0` | Follow-back lists — always HOLD by default |
+| `WHATSAPP_ENABLED` | `false` | Enable Baileys WhatsApp QR login |
+| `POSTGRES_URL` | — | Use Postgres instead of the default PGLite |
 
-Reject/edit notes land in `knowledge/feedback/`.
+---
 
-Support FAQ answers may send immediately (logged). Billing, refunds, legal, and angry customers escalate and wait for you.
+## Human-in-the-loop
 
-## Resting
+You only see **HOLD** items. Low-sensitivity comments skip the queue entirely.
 
-Per-agent quiet hours, rest days, daily draft caps, and cooldowns are enforced in code (`src/lib/rest.ts`). `/pause` stops drafting immediately.
+Talk to **TG Guy** in Telegram or at `http://localhost:3000`:
+
+```
+/pending [platform]     list items waiting for your eyes
+/auto                   list items that already auto-approved
+/approve <id>           confirm draft copy is OK
+/edit <id> <notes>      send back to the agent with notes
+/reject <id> <reason>   kill the draft (stored as feedback)
+/published <id>         mark as posted (you did it in the native app)
+/feedback <id> <notes>  attach notes after publishing
+/status [agent]         health, rest-state, queue counts
+/pause <agent>          stop drafting immediately
+/resume <agent>         wake the agent
+/help                   this list
+```
+
+### How sensitivity scores work
+
+Every draft is scored 0–100 across seven risk flags:
+
+| Flag | What triggers it |
+|---|---|
+| `legal-or-finance` | Refund, lawsuit, investment advice, crypto-pump, wire-transfer, SSN |
+| `medical-claim` | Cure, diagnose, prescription, FDA-approved |
+| `toxic` | Slurs, personal attacks |
+| `engagement-bait` | "Like and retweet", follow-for-follow |
+| `unverified-claim` | "Guaranteed", "#1 in the world", "100% of users" |
+| `possible-pii` | Email address or phone number in the text |
+| `support-escalation` | Lawsuit, attorney, BBB, chargeback, fraud — in a support context |
+
+Auto-approval rules:
+
+| Content type | Auto if score ≤ | Hard blocks |
+|---|---|---|
+| Comments / replies | `AUTO_APPROVE_REPLY_MAX` (35) | `legal-or-finance`, `support-escalation` |
+| Bland support FAQ | `AUTO_APPROVE_SUPPORT_MAX` (25) | same |
+| Original posts / IG / YT / blog | `AUTO_APPROVE_POST_MAX` (0) | — |
+| Follow-back lists | `AUTO_APPROVE_FOLLOWBACK_MAX` (0) | — |
+
+Feedback from reject/edit lands in `knowledge/feedback/` and improves future drafts.
+
+---
+
+## Video clips
+
+Drop a video file into `media/source/`. Instagram Guy (or YouTube Guy) will ask ffmpeg to cut vertical 9:16 clips and stage captions for review.
+
+Requires `ffmpeg` on `PATH`.
+
+---
+
+## WhatsApp support
+
+Set `WHATSAPP_ENABLED=true` and install Baileys:
+
+```bash
+bun add @whiskeysockets/baileys
+```
+
+On first start, a QR code is printed to the console. Scan it with WhatsApp on your phone. Auth state is saved to `WHATSAPP_AUTH_DIR` (default `.eliza/whatsapp-auth`).
+
+---
 
 ## Monitoring
 
-- Telegram `/status`
-- `GET /ops/status` and `ops/status.json`
-- Alerts for errors, daily cap, and stale unreviewed drafts
+- **Telegram** `/status` — per-agent queue counts, rest state, last heartbeat
+- **HTTP** `GET http://localhost:3000/ops/status` — JSON health payload
+- **File** `ops/status.json` — same payload, persisted to disk
+- Automatic alerts (Telegram ping) on: agent error, daily cap reached, pending items stale > `STALE_PENDING_HOURS` hours
 
-## Getting Started
+---
 
-Needs Node 23.3+ and [Bun](https://bun.sh).
+## Project layout
 
-```bash
-cd social-ops
-# Model: local Ollama (free) or set OPENAI_API_KEY
-# Optional live support: TELEGRAM_BOT_TOKEN from @BotFather
-
-bun install
-bun run build
-elizaos start
-# or: elizaos dev
+```
+src/
+  characters/          agent definitions (twitter-guy, instagram-guy, tg-guy, youtube-guy, blog-guy)
+  plugins/
+    content-queue.ts   pending → approved → published queue with sensitivity scoring
+    ops.ts             rest, pause, /status heartbeats
+    video-clips.ts     ffmpeg vertical-clip helper
+    whatsapp.ts        optional Baileys plugin (gated by WHATSAPP_ENABLED)
+  lib/
+    sensitivity.ts     0-100 scoring + auto-approve logic
+    queue.ts           file-based queue (content-queue/)
+    hitl.ts            command parser + allowlist
+    rest.ts            quiet hours, rest days, daily caps, cooldown
+    ops-store.ts       shared ops state + Telegram alerts
+    feedback.ts        feedback writer
+    paths.ts           centralised path constants
+knowledge/
+  brand.md             voice, tone, brand rules
+  support-faq.md       FAQ answers for TG Guy
+  twitter-topics.md    content calendar / topic seeds
+  feedback/            agent learning (gitignored, kept by .gitkeep)
+content-queue/         draft files (gitignored, .gitkeep placeholders)
+media/
+  source/              drop raw video here (gitignored)
+  clips/               ffmpeg output (gitignored)
+ops/                   runtime state files (gitignored)
 ```
 
-Open `http://localhost:3000`. Ask Twitter Guy to draft a **reply** (auto if low score) or a **tweet** (HOLD). Then `/pending` for anything that needs you.
-
-### Environment
-
-Copy `.env.example` values into `.env`:
-
-- `OLLAMA_API_ENDPOINT` / `OPENAI_API_KEY` — at least one model provider
-- `TELEGRAM_BOT_TOKEN` — BotFather, not a developer application
-- `HITL_CHAT_IDS` — your Telegram chat id (empty = allow local UI)
-- `QUIET_HOURS`, `REST_TZ`, `REST_DAYS`, `DAILY_DRAFT_CAP`
-- `WHATSAPP_ENABLED=true` plus `bun add @whiskeysockets/baileys` for QR support
-- `DRY_RUN=true` (default)
-
-Official `@elizaos/plugin-twitter` is **not** wired. Cookie/password Twitter login is out of scope.
-
-## Development
-
-```bash
-elizaos dev
-# or
-elizaos start
-bun run build   # required after edits if you used start
-```
+---
 
 ## Testing
 
 ```bash
-bun test src/__tests__/queue.test.ts src/__tests__/hitl-rest.test.ts src/__tests__/social-ops.test.ts
-bun test          # full starter + social-ops suite
-elizaos test
+bun test src/__tests__/queue.test.ts \
+         src/__tests__/hitl-rest.test.ts \
+         src/__tests__/sensitivity.test.ts \
+         src/__tests__/social-ops.test.ts
+bun test          # full suite
+elizaos test      # elizaOS runtime tests
 ```
 
-1. **Component tests** (`src/__tests__/*.test.ts`) — Bun
-2. **E2E tests** (`src/__tests__/e2e/*.e2e.ts`) — ElizaOS runtime
+---
 
-## Layout
+## Limitations
 
-- `src/characters/` — five agent personalities
-- `src/plugins/content-queue.ts` — pending → approved → published
-- `src/plugins/ops.ts` — rest, pause, `/status`
-- `src/plugins/video-clips.ts` — ffmpeg shorts
-- `src/plugins/whatsapp.ts` — optional Baileys QR
-- `knowledge/` — brand, FAQ, topics, feedback
-- `content-queue/` — draft files
-- `media/source/` — drop long-form video here
+- **No X/Twitter posting**: `@elizaos/plugin-twitter` requires OAuth 1.0a keys. Cookie/password login is out of scope (ToS + Arkose). Approved tweets are posted manually.
+- **No Instagram Graph API**: no Meta developer app needed. Captions queue for manual posting.
+- **No YouTube Data API**: titles/descriptions queue for YouTube Studio.
+- `DRY_RUN=true` is the safe default — flip to `false` only when Telegram is wired and you've tested the queue.
+
+---
+
+## License
+
+MIT
