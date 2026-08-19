@@ -1,0 +1,4 @@
+{
+  "install": "bun install\nbun run build",
+  "start": "elizaos start"
+}

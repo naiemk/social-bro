@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadSocialOpsConfig } from "./config.ts";
 
 export function getDataRoot(): string {
-  return process.env.SOCIAL_OPS_DATA_DIR || process.cwd();
+  const cfgRoot = loadSocialOpsConfig().dataDir;
+  return process.env.SOCIAL_OPS_DATA_DIR || cfgRoot || process.cwd();
 }
 
 export function resolveData(...segments: string[]): string {

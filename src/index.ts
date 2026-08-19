@@ -50,6 +50,7 @@ const tgAgent: ProjectAgent = {
   init: initNamed(tgGuy.name),
   plugins: [
     ...sharedRuntimePlugins,
+    videoClipsPlugin,
     ...(String(process.env.WHATSAPP_ENABLED).toLowerCase() === "true"
       ? [whatsappPlugin]
       : []),

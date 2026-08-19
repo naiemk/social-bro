@@ -32,7 +32,9 @@ For local-only (free): set `OLLAMA_API_ENDPOINT=http://localhost:11434/api` and 
 
 ---
 
-## Configuration (`.env`)
+## Configuration (`config.yaml` + `.env`)
+
+Non-secret runtime behavior now lives in [`config.yaml`](./config.yaml). Keep secrets in `.env`.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -50,6 +52,8 @@ For local-only (free): set `OLLAMA_API_ENDPOINT=http://localhost:11434/api` and 
 | `AUTO_APPROVE_SUPPORT_MAX` | `25` | Bland FAQ answers auto-send at this score or below |
 | `AUTO_APPROVE_POST_MAX` | `0` | Set > 0 to auto-approve simple original posts |
 | `AUTO_APPROVE_FOLLOWBACK_MAX` | `0` | Follow-back lists — always HOLD by default |
+| `REPLICATE_API_TOKEN` | — | Required for AI video generation (Replicate provider) |
+| `SOCIAL_OPS_CONFIG` | `./config.yaml` | Path to main YAML config |
 | `WHATSAPP_ENABLED` | `false` | Enable Baileys WhatsApp QR login |
 | `POSTGRES_URL` | — | Use Postgres instead of the default PGLite |
 
@@ -65,6 +69,7 @@ Talk to **TG Guy** in Telegram or at `http://localhost:3000`:
 /pending [platform]     list items waiting for your eyes
 /auto                   list items that already auto-approved
 /approve <id>           confirm draft copy is OK
+/render-video <id>      render an approved video plan via AI provider
 /edit <id> <notes>      send back to the agent with notes
 /reject <id> <reason>   kill the draft (stored as feedback)
 /published <id>         mark as posted (you did it in the native app)
@@ -102,11 +107,27 @@ Feedback from reject/edit lands in `knowledge/feedback/` and improves future dra
 
 ---
 
-## Video clips
+## AI video workflow (Instagram + YouTube)
 
-Drop a video file into `media/source/`. Instagram Guy (or YouTube Guy) will ask ffmpeg to cut vertical 9:16 clips and stage captions for review.
+Default provider is **Replicate** (cost-effective and model-flexible). Runway is still possible later via the same architecture.
 
-Requires `ffmpeg` on `PATH`.
+Flow:
+
+1. Ask Instagram Guy or YouTube Guy for a scenario/script.
+2. Agent queues a `video-plan` draft (HOLD) with:
+   - hook
+   - scenario
+   - script
+   - shot list
+   - CTA
+3. You `/approve <id>` or `/edit <id> ...`.
+4. Run `/render-video <approved-id>`.
+5. Agent calls Replicate, downloads output, then runs quality checks with `ffprobe`:
+   - min/max duration
+   - minimum resolution
+6. Final rendered clip is queued as `video-render` for final review/publish.
+
+Provider and quality thresholds are controlled in `config.yaml` under `video.*`.
 
 ---
 
@@ -131,6 +152,29 @@ On first start, a QR code is printed to the console. Scan it with WhatsApp on yo
 
 ---
 
+## Docker + nginx + auto-update
+
+Deployment files are in [`deploy/`](./deploy):
+
+- `deploy/docker-compose.yml` — app + nginx + watchtower
+- `deploy/nginx/*` — reverse-proxy config
+- `deploy/Dockerfile.nginx` — nginx image
+- `.github/workflows/docker.yml` — GHCR build/push + deploy artifact
+
+VPS workflow:
+
+1. Download `docker-compose.yml`, `config.yaml`, `.env`, and nginx config folder.
+2. Set secrets in `.env` (including `REPLICATE_API_TOKEN`).
+3. `docker compose pull && docker compose up -d`
+
+Auto-update:
+
+- Watchtower runs every 15 min by default (`WATCHTOWER_POLL_SECONDS=900`)
+- Rolling restarts are enabled for graceful upgrades
+- nginx stays in front of the app on 80/443
+
+---
+
 ## Project layout
 
 ```
@@ -139,10 +183,11 @@ src/
   plugins/
     content-queue.ts   pending → approved → published queue with sensitivity scoring
     ops.ts             rest, pause, /status heartbeats
-    video-clips.ts     ffmpeg vertical-clip helper
+    video-clips.ts     AI video plan/render workflow + quality checks
     whatsapp.ts        optional Baileys plugin (gated by WHATSAPP_ENABLED)
   lib/
     sensitivity.ts     0-100 scoring + auto-approve logic
+    config.ts          central YAML config loader
     queue.ts           file-based queue (content-queue/)
     hitl.ts            command parser + allowlist
     rest.ts            quiet hours, rest days, daily caps, cooldown
