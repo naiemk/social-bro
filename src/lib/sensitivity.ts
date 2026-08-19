@@ -1,3 +1,5 @@
+import { loadSocialOpsConfig } from "./config.ts";
+
 export type ContentKind =
   | "reply"
   | "post"
@@ -79,6 +81,7 @@ export function inferKind(
 }
 
 export function getAutoThresholds(): Record<ContentKind, number> {
+  const cfg = loadSocialOpsConfig();
   const num = (key: string, fallback: number) => {
     const raw = process.env[key];
     if (raw === undefined || raw.trim() === "") return fallback;
@@ -86,13 +89,16 @@ export function getAutoThresholds(): Record<ContentKind, number> {
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   return {
-    reply: num("AUTO_APPROVE_REPLY_MAX", 35),
-    support: num("AUTO_APPROVE_SUPPORT_MAX", 25),
-    post: num("AUTO_APPROVE_POST_MAX", 0),
-    instagram: num("AUTO_APPROVE_POST_MAX", 0),
-    youtube: num("AUTO_APPROVE_POST_MAX", 0),
-    blog: num("AUTO_APPROVE_POST_MAX", 0),
-    "follow-back": num("AUTO_APPROVE_FOLLOWBACK_MAX", 0),
+    reply: num("AUTO_APPROVE_REPLY_MAX", cfg.autoApprove.replyMax),
+    support: num("AUTO_APPROVE_SUPPORT_MAX", cfg.autoApprove.supportMax),
+    post: num("AUTO_APPROVE_POST_MAX", cfg.autoApprove.postMax),
+    instagram: num("AUTO_APPROVE_POST_MAX", cfg.autoApprove.postMax),
+    youtube: num("AUTO_APPROVE_POST_MAX", cfg.autoApprove.postMax),
+    blog: num("AUTO_APPROVE_POST_MAX", cfg.autoApprove.postMax),
+    "follow-back": num(
+      "AUTO_APPROVE_FOLLOWBACK_MAX",
+      cfg.autoApprove.followbackMax,
+    ),
   };
 }
 

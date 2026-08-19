@@ -82,3 +82,5 @@ bun.lockb
 # Misc
 *.tgz
 *.tar.gz
+deploy/nginx/certs/*
+!deploy/nginx/certs/.gitkeep

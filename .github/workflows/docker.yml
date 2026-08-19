@@ -1,0 +1,90 @@
+name: Docker images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_APP: ghcr.io/${{ github.repository_owner }}/social-bro
+  IMAGE_NGINX: ghcr.io/${{ github.repository_owner }}/social-bro-nginx
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta (app)
+        id: meta_app
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_APP }}
+          tags: |
+            type=raw,value=main,enable={{is_default_branch}}
+            type=sha,prefix=main-,format=short
+            type=semver,pattern={{version}}
+
+      - name: Build and push app
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta_app.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Docker meta (nginx)
+        id: meta_nginx
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NGINX }}
+          tags: |
+            type=raw,value=main,enable={{is_default_branch}}
+            type=sha,prefix=main-,format=short
+            type=semver,pattern={{version}}
+
+      - name: Build and push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy
+          file: Dockerfile.nginx
+          push: true
+          tags: ${{ steps.meta_nginx.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Generate compose artifact
+        env:
+          IMAGE_TAG: main-${{ github.sha }}
+        run: |
+          sed "s/\${IMAGE_TAG:-main}/$IMAGE_TAG/g" deploy/docker-compose.yml > deploy/docker-compose.generated.yml
+
+      - name: Upload generated deploy bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: social-bro-deploy
+          path: |
+            deploy/docker-compose.generated.yml
+            deploy/nginx
+            config.yaml

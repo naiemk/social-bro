@@ -84,6 +84,7 @@ export const HITL_HELP = `Human-in-the-loop commands:
 /pending [platform] — items that NEED your eyes (high sensitivity)
 /auto — low-sensitivity comments that already auto-approved
 /approve <id> — confirm a held draft
+/render-video <approved-plan-id> — generate approved IG/YT script with AI video provider
 /edit <id> <notes> — send back to the agent
 /reject <id> <reason> — kill it and store feedback
 /published <id> — you already posted it

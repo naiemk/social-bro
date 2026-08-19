@@ -1,0 +1,27 @@
+dataDir: /app/data
+
+autoApprove:
+  replyMax: 35
+  supportMax: 25
+  postMax: 0
+  followbackMax: 0
+
+video:
+  provider: replicate
+  defaultPlatform: instagram
+  profile:
+    durationSeconds: 8
+    width: 720
+    height: 1280
+    fps: 24
+  quality:
+    minDurationSeconds: 6
+    maxDurationSeconds: 12
+    minWidth: 540
+    minHeight: 960
+  replicate:
+    enabled: true
+    model: kwaivgi/kling-v2.1
+
+deploy:
+  appPort: 3000

@@ -1,0 +1,64 @@
+name: social-bro
+
+services:
+  app:
+    image: ghcr.io/naiemk/social-bro:${IMAGE_TAG:-main}
+    container_name: social-bro-app
+    env_file:
+      - .env
+    environment:
+      SOCIAL_OPS_CONFIG: /app/config.yaml
+      SOCIAL_OPS_DATA_DIR: /app/data
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - social-bro-data:/app/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ops/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    networks:
+      - edge
+
+  nginx:
+    image: ghcr.io/naiemk/social-bro-nginx:${IMAGE_TAG:-main}
+    container_name: social-bro-nginx
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${TLS_FULLCHAIN:-./nginx/certs/fullchain.pem}:/etc/nginx/certs/fullchain.pem:ro
+      - ${TLS_PRIVKEY:-./nginx/certs/privkey.pem}:/etc/nginx/certs/privkey.pem:ro
+      - ${CERTBOT_WWW:-/var/www/certbot}:/var/www/certbot:ro
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    networks:
+      - edge
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: social-bro-watchtower
+    command: --interval ${WATCHTOWER_POLL_SECONDS:-900} --cleanup --rolling-restart social-bro-app social-bro-nginx
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - edge
+
+volumes:
+  social-bro-data:
+
+networks:
+  edge:
+    driver: bridge
