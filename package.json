@@ -45,6 +45,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^5.1.1",
